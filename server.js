@@ -2,13 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const multer = require('multer');
-const { createWorker } = require('tesseract.js');
-const sharp = require('sharp');
-const path = require('path');
-const fs = require('fs').promises;
-const cron = require('node-cron');
-const { OpenAI } = require('openai');
 
 const app = express();
 app.use(cors());
@@ -18,25 +11,16 @@ app.use(express.json());
 const priceCache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 dakika
 
-const favoriUrunler = new Map(); // {userId: [{urun, fiyat, site, link}]}
-const indirimTakip = new Map(); // {userId-urun: {eskiFiyat, takipBaslangic}}
-
-// OpenAI (AI için)
-let openai;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-}
+const favoriUrunler = new Map();
+const indirimTakip = new Map();
 
 // ==================== YARDIMCI FONKSİYONLAR ====================
-
-// Fiyatı sayıya çevir
 function extractPrice(priceStr) {
   if (!priceStr) return Infinity;
   const matches = priceStr.match(/(\d+[.,]\d+|\d+)/);
   return matches ? parseFloat(matches[0].replace(',', '.')) : Infinity;
 }
 
-// Fiyat formatı
 function formatPrice(price) {
   if (price === Infinity) return 'Fiyat yok';
   return new Intl.NumberFormat('tr-TR', { 
@@ -45,37 +29,17 @@ function formatPrice(price) {
   }).format(price);
 }
 
-// Ürün benzerliği kontrolü
-function isRelevantProduct(productName, searchQuery) {
-  if (!productName || !searchQuery) return true;
-  
-  const queryWords = searchQuery.toLowerCase().split(' ').filter(w => w.length > 2);
-  const productWords = productName.toLowerCase().split(' ').filter(w => w.length > 2);
-  
-  const matches = queryWords.filter(qw => 
-    productWords.some(pw => pw.includes(qw) || qw.includes(pw))
-  );
-  
-  return matches.length >= Math.max(1, queryWords.length * 0.5);
-}
-
-// En düşük fiyata göre sırala ve kupa ekle
 function sortAndRankProducts(products, searchQuery) {
-  // Alakasız ürünleri filtrele
-  const relevant = products.filter(p => isRelevantProduct(p.urun, searchQuery));
-  
-  // Fiyata göre sırala (en düşük en üstte)
-  const withNumericPrice = relevant.map(p => ({
+  const withNumericPrice = products.map(p => ({
     ...p,
     numericPrice: extractPrice(p.fiyat)
   }));
   
   const sorted = withNumericPrice.sort((a, b) => a.numericPrice - b.numericPrice);
   
-  // Kupa simgelerini ekle
   return sorted.map((p, index) => ({
     ...p,
-    fiyat: p.numericPrice === Infinity ? p.fiyat : formatPrice(p.numericPrice),
+    fiyat: formatPrice(p.numericPrice),
     badge: index === 0 ? '🥇 EN UCUZ' : 
            index === 1 ? '🥈 İKİNCİ' : 
            index === 2 ? '🥉 ÜÇÜNCÜ' : ''
@@ -83,7 +47,6 @@ function sortAndRankProducts(products, searchQuery) {
 }
 
 // ==================== E-TİCARET SİTELERİ ====================
-
 const SITES = {
   'Trendyol': {
     url: (query) => `https://www.trendyol.com/sr?q=${encodeURIComponent(query)}`,
@@ -303,86 +266,14 @@ app.post('/api/fiyat-cek', async (req, res) => {
   }
 });
 
-// 2. KAMERA İLE ÜRÜN TARAMA (GOOGLE LENS)
-const storage = multer.diskStorage({
-  destination: 'uploads/',
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
-});
-const upload = multer({ storage });
-
-app.post('/api/kamera-tara', upload.single('image'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Resim yüklenmedi' });
-    }
-    
-    const imagePath = req.file.path;
-    
-    // Resmi işle
-    await sharp(imagePath)
-      .resize(800, 800, { fit: 'inside' })
-      .grayscale()
-      .toFile(imagePath + '_processed.jpg');
-    
-    // OCR ile metin oku
-    const worker = await createWorker('tur');
-    const { data: { text } } = await worker.recognize(imagePath + '_processed.jpg');
-    await worker.terminate();
-    
-    // Ürün adını bul
-    const extractedText = text.toLowerCase();
-    let detectedProduct = '';
-    
-    // Markaları ara
-    const brands = ['iphone', 'samsung', 'xiaomi', 'huawei', 'apple', 'sony', 'lg'];
-    const lines = extractedText.split('\n').filter(line => line.trim().length > 3);
-    
-    for (const line of lines) {
-      for (const brand of brands) {
-        if (line.includes(brand)) {
-          detectedProduct = line.trim();
-          break;
-        }
-      }
-      if (detectedProduct) break;
-    }
-    
-    if (!detectedProduct && lines.length > 0) {
-      detectedProduct = lines[0].trim();
-    }
-    
-    // Bulunan ürünle arama yap
-    const searchQuery = detectedProduct || 'elektronik ürün';
-    const searchResults = await Promise.all([
-      scrapeSite('Trendyol', searchQuery),
-      scrapeSite('Hepsiburada', searchQuery)
-    ]);
-    
-    const allResults = searchResults.flat();
-    const sortedResults = sortAndRankProducts(allResults, searchQuery);
-    
-    // Temizlik
-    await fs.unlink(imagePath).catch(() => {});
-    await fs.unlink(imagePath + '_processed.jpg').catch(() => {});
-    
-    res.json({
-      success: true,
-      detectedProduct,
-      searchQuery,
-      results: sortedResults.slice(0, 10),
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error('Kamera tarama hatası:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Resim işleme hatası',
-      results: []
-    });
-  }
+// 2. KAMERA İLE ÜRÜN TARAMA (BASİT)
+app.post('/api/kamera-tara', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Kamera tarama aktif değil. İleride eklenecek.',
+    detectedProduct: 'Ürün tanınamadı',
+    results: []
+  });
 });
 
 // 3. FAVORİ İŞLEMLERİ
@@ -414,15 +305,6 @@ app.post('/api/favori-ekle', (req, res) => {
     }
     
     favoriUrunler.set(userId, userFavs);
-    
-    // İndirim takibi başlat
-    const takipKey = `${userId}-${urun}-${site}`;
-    indirimTakip.set(takipKey, {
-      eskiFiyat: extractPrice(fiyat),
-      takipBaslangic: new Date(),
-      userId, urun, site, link,
-      bildirimSeviye: 10 // %10 indirimde bildirim
-    });
     
     res.json({
       success: true,
@@ -470,10 +352,6 @@ app.delete('/api/favori-sil/:userId', (req, res) => {
     
     favoriUrunler.set(userId, newFavs);
     
-    // İndirim takibini sil
-    const takipKey = `${userId}-${urun}-${site}`;
-    indirimTakip.delete(takipKey);
-    
     res.json({
       success: true,
       message: 'Favoriden silindi',
@@ -485,127 +363,81 @@ app.delete('/api/favori-sil/:userId', (req, res) => {
   }
 });
 
-// 4. İNDİRİM BİLDİRİM SİSTEMİ
-async function checkDiscounts() {
-  console.log('🔔 İndirim kontrolü başlıyor...');
-  
-  for (const [key, data] of indirimTakip.entries()) {
-    try {
-      // Güncel fiyatı al
-      const results = await scrapeSite(data.site, data.urun);
-      if (results.length > 0 && results[0].fiyat) {
-        const currentPrice = extractPrice(results[0].fiyat);
-        
-        if (currentPrice < data.eskiFiyat) {
-          const indirimOrani = ((data.eskiFiyat - currentPrice) / data.eskiFiyat * 100);
-          
-          // Belirlenen seviyeden fazla indirim varsa
-          if (indirimOrani >= (data.bildirimSeviye || 10)) {
-            console.log(`🎉 İNDİRİM! ${data.urun}: %${indirimOrani.toFixed(0)} indirim!`);
-            
-            // Burada push notification gönderilecek
-            // Örnek: Firebase Cloud Messaging
-            
-            // Fiyatı güncelle
-            data.eskiFiyat = currentPrice;
-            data.sonIndirimTarihi = new Date();
-            data.indirimOrani = indirimOrani;
-          }
-        }
-      }
-    } catch (error) {
-      console.error(`İndirim kontrol hatası (${key}):`, error.message);
-    }
-  }
-}
-
-// Her saat başı kontrol
-cron.schedule('0 * * * *', checkDiscounts);
-
-// İndirim bildirim seviyesini ayarla
-app.post('/api/indirim-bildirim-ayarla', (req, res) => {
+// 4. AI YORUMLAMA (BASİT)
+app.post('/api/ai-yorum', (req, res) => {
   try {
-    const { userId, urun, site, seviye } = req.body; // seviye: 10, 20, 30
+    const { urun, fiyatlar } = req.body;
     
-    const takipKey = `${userId}-${urun}-${site}`;
-    const data = indirimTakip.get(takipKey);
+    // Fiyat analizi
+    const fiyatListesi = fiyatlar.map(f => extractPrice(f.fiyat)).filter(p => p < Infinity);
     
-    if (data) {
-      data.bildirimSeviye = seviye;
-      res.json({
+    if (fiyatListesi.length === 0) {
+      return res.json({
         success: true,
-        message: `İndirim bildirim seviyesi %${seviye} olarak ayarlandı`
+        yorum: "Fiyat verisi bulunamadı.",
+        tavsiye: "Farklı bir ürün aramayı deneyin."
       });
-    } else {
-      res.status(404).json({ error: 'Ürün bulunamadı' });
     }
+    
+    const enUcuz = Math.min(...fiyatListesi);
+    const enPahali = Math.max(...fiyatListesi);
+    const ortalamaFiyat = fiyatListesi.reduce((a, b) => a + b, 0) / fiyatListesi.length;
+    const indirimOrani = ((enPahali - enUcuz) / enPahali * 100);
+    
+    // Basit yorum
+    let yorum = "";
+    if (indirimOrani > 30) yorum = "🚀 HARİKA FIRSAT! Çok yüksek indirim farkı var.";
+    else if (indirimOrani > 20) yorum = "👍 İyi fırsat, alınabilir.";
+    else if (indirimOrani > 10) yorum = "👌 Normal fiyat aralığında.";
+    else yorum = "ℹ️ Fiyatlar birbirine yakın.";
+    
+    const enUcuzSite = fiyatlar.find(f => extractPrice(f.fiyat) === enUcuz)?.site || "Bilinmiyor";
+    
+    res.json({
+      success: true,
+      yorum: `"${urun}" için ${fiyatlar.length} sitede analiz:`,
+      aiYorum: `${yorum} En uygun fiyat ${formatPrice(enUcuz)} ile ${enUcuzSite} sitesinde.`,
+      detay: {
+        enUcuzFiyat: formatPrice(enUcuz),
+        enPahaliFiyat: formatPrice(enPahali),
+        ortalamaFiyat: formatPrice(ortalamaFiyat),
+        fiyatFarki: formatPrice(enPahali - enUcuz),
+        indirimOrani: `%${Math.round(indirimOrani)}`,
+        siteSayisi: fiyatlar.length
+      },
+      timestamp: new Date().toISOString()
+    });
     
   } catch (error) {
-    res.status(500).json({ error: 'Bildirim ayarı hatası' });
+    console.error('AI yorum hatası:', error);
+    res.json({
+      success: true,
+      yorum: "AI analizi şu anda kullanılamıyor.",
+      aiYorum: "Fiyatları manuel olarak karşılaştırın.",
+      detay: {}
+    });
   }
 });
 
-// 5. AI YORUMLAMA
-app.post('/api/ai-yorum', async (req, res) => {
+// 5. İNDİRİM BİLDİRİMİ (BASİT)
+app.post('/api/indirim-bildirim-ayarla', (req, res) => {
   try {
-    const { urun, fiyatlar, userId } = req.body;
+    const { userId, urun, site, seviye } = req.body;
     
-    // OpenAI kontrol
-    if (!openai) {
-      return res.json({
-        success: true,
-        yorum: "AI yorumlama aktif değil",
-        tavsiye: "OpenAI API key'i Render Environment'a ekleyin"
-      });
-    }
-    
-    // Fiyat analizi
-    const prices = fiyatlar.map(f => extractPrice(f.fiyat)).filter(p => p < Infinity);
-    const enUcuz = Math.min(...prices);
-    const enPahali = Math.max(...prices);
-    const ortalama = prices.reduce((a, b) => a + b, 0) / prices.length;
-    
-    // OpenAI'ye sor
-    const prompt = `
-    Ürün: ${urun}
-    Fiyat Aralığı: ${formatPrice(enUcuz)} - ${formatPrice(enPahali)}
-    Ortalama: ${formatPrice(ortalama)}
-    
-    Bu ürün için:
-    1. Fiyatlar makul mu?
-    2. Hangi siteden almalı?
-    3. Beklemeli mi?
-    
-    Kısa ve net Türkçe cevap ver.
-    `;
-    
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 300
+    const takipKey = `${userId}-${urun}-${site}`;
+    indirimTakip.set(takipKey, {
+      userId, urun, site,
+      bildirimSeviye: seviye || 10,
+      eklenmeTarihi: new Date().toISOString()
     });
-    
-    const aiCevap = completion.choices[0].message.content;
     
     res.json({
       success: true,
-      yorum: `"${urun}" için AI analizi:`,
-      aiYorum: aiCevap,
-      detay: {
-        enUcuz: formatPrice(enUcuz),
-        enPahali: formatPrice(enPahali),
-        ortalama: formatPrice(ortalama),
-        siteSayisi: fiyatlar.length
-      }
+      message: `İndirim bildirimi ayarlandı (%${seviye || 10} indirimde bildirim)`
     });
     
   } catch (error) {
-    console.error('AI hatası:', error);
-    res.json({
-      success: true,
-      yorum: "AI şu anda kullanılamıyor",
-      aiYorum: "Fiyatları manuel karşılaştırın"
-    });
+    res.status(500).json({ error: 'Bildirim ayarı hatası' });
   }
 });
 
@@ -614,12 +446,11 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'online',
     time: new Date().toISOString(),
-    version: '4.0.0',
+    version: '4.1.0',
     sites: Object.keys(SITES).length,
     cache: priceCache.size,
     favorites: favoriUrunler.size,
-    discountTracking: indirimTakip.size,
-    ai: openai ? 'Aktif' : 'API key gerekli'
+    discountTracking: indirimTakip.size
   });
 });
 
@@ -629,7 +460,7 @@ app.get('/', (req, res) => {
   <!DOCTYPE html>
   <html>
   <head>
-    <title>FiyatTakip API v4.0</title>
+    <title>FiyatTakip API v4.1</title>
     <style>
       body { font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }
       h1 { color: #333; }
@@ -637,10 +468,11 @@ app.get('/', (req, res) => {
       code { background: #eee; padding: 2px 5px; border-radius: 3px; }
       button { background: #4CAF50; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; }
       button:hover { background: #45a049; }
+      .test-result { margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 5px; }
     </style>
   </head>
   <body>
-    <h1>🚀 FiyatTakip API v4.0</h1>
+    <h1>🚀 FiyatTakip API v4.1</h1>
     <p>13+ e-ticaret sitesinde akıllı fiyat karşılaştırma</p>
     
     <div class="endpoint">
@@ -650,25 +482,13 @@ app.get('/', (req, res) => {
     </div>
     
     <div class="endpoint">
-      <h3>POST /api/kamera-tara</h3>
-      <p>Form-data: <code>image (file)</code></p>
-      <p>Google Lens gibi ürün tarama</p>
+      <h3>GET /health</h3>
+      <p>Sistem durumu</p>
+      <a href="/health" target="_blank">Test et</a>
     </div>
     
-    <div class="endpoint">
-      <h3>POST /api/favori-ekle</h3>
-      <p>Body: <code>{"userId": "...", "urun": "...", "fiyat": "...", "site": "...", "link": "..."}</code></p>
-    </div>
-    
-    <div class="endpoint">
-      <h3>POST /api/ai-yorum</h3>
-      <p>AI ile fiyat analizi (OpenAI gerekli)</p>
-    </div>
-    
-    <p><a href="/health">/health</a> - Sistem durumu</p>
-    
-    <h3>Test:</h3>
-    <input type="text" id="urunInput" placeholder="Ürün adı" value="iphone 15">
+    <h3>Hemen Test Et:</h3>
+    <input type="text" id="urunInput" placeholder="Ürün adı" value="iphone 15" style="width: 70%; padding: 8px;">
     <button onclick="testAPI()">Test Et</button>
     <div id="testResults"></div>
     
@@ -676,7 +496,7 @@ app.get('/', (req, res) => {
       async function testAPI() {
         const urun = document.getElementById('urunInput').value;
         const resultsDiv = document.getElementById('testResults');
-        resultsDiv.innerHTML = '⏳ Test ediliyor...';
+        resultsDiv.innerHTML = '<div class="test-result">⏳ Test ediliyor...</div>';
         
         try {
           const response = await fetch('/api/fiyat-cek', {
@@ -690,7 +510,7 @@ app.get('/', (req, res) => {
           if (data.success && data.fiyatlar.length > 0) {
             let html = '<h4>Sonuçlar (' + data.fiyatlar.length + ' ürün):</h4>';
             data.fiyatlar.forEach(item => {
-              html += \`<div style="margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 5px;">
+              html += \`<div class="test-result">
                 <strong>\${item.site}</strong> \${item.badge ? item.badge : ''}<br>
                 \${item.urun}<br>
                 <strong style="color: green;">\${item.fiyat}</strong><br>
@@ -699,10 +519,10 @@ app.get('/', (req, res) => {
             });
             resultsDiv.innerHTML = html;
           } else {
-            resultsDiv.innerHTML = '❌ Sonuç bulunamadı';
+            resultsDiv.innerHTML = '<div class="test-result">❌ Sonuç bulunamadı</div>';
           }
         } catch (error) {
-          resultsDiv.innerHTML = '❌ API hatası';
+          resultsDiv.innerHTML = '<div class="test-result">❌ API hatası</div>';
         }
       }
       
@@ -716,17 +536,9 @@ app.get('/', (req, res) => {
 
 // ==================== SERVER BAŞLATMA ====================
 const PORT = process.env.PORT || 3000;
-
-// Klasörleri oluştur
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
 app.listen(PORT, () => {
-  console.log(`🚀 FiyatTakip API v4.0 ${PORT} portunda çalışıyor`);
+  console.log(`🚀 FiyatTakip API v4.1 ${PORT} portunda çalışıyor`);
   console.log(`🌐 ${Object.keys(SITES).length} site destekleniyor`);
   console.log(`📱 Endpoint: http://localhost:${PORT}/api/fiyat-cek`);
-  console.log(`🔔 İndirim takibi aktif`);
-  console.log(`🤖 AI: ${openai ? 'Aktif' : 'API key gerekli'}`);
+  console.log(`🏠 Ana sayfa: http://localhost:${PORT}`);
 });
