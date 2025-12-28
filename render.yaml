@@ -1,10 +1,7 @@
 services:
   - type: web
-    name: flyattakip-api
+    name: fiyattakip-api  # BU ÖNEMLİ: fiyattakip-api
     env: node
     buildCommand: npm install
     startCommand: node server.js
     nodeVersion: 20.18.0
-    envVars:
-      - key: NODE_ENV
-        value: production
