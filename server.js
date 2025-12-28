@@ -14,6 +14,13 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
+// SADECE TEST İÇİN – GET ROUTE
+app.get("/ai-yorum", (req, res) => {
+  res.json({
+    mesaj: "AI endpoint aktif. POST ile çağırmalısın."
+  });
+});
+
 app.post("/ai-yorum", async (req, res) => {
   try {
     const { title, store } = req.body;
