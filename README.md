@@ -1,23 +1,19 @@
-# FiyatTakip API v4.1
 
-13+ e-ticaret sitesinde akıllı fiyat karşılaştırma.
+# FiyatTakip AI Backend (Render)
 
-## Özellikler
-- 13+ site (Trendyol, Hepsiburada, n11, Amazon, Çiçek Sepeti, İdefix...)
-- En düşük fiyat sıralaması 🥇🥈🥉
-- Favori yönetimi (en ucuz üstte)
-- AI yorumlama (basit)
-- İndirim bildirim sistemi
+## Kurulum (Render)
+1. New Web Service
+2. Node.js
+3. Build Command: npm install
+4. Start Command: npm start
 
-## API Endpoints
-- `POST /api/fiyat-cek` - Fiyat karşılaştırma
-- `POST /api/favori-ekle` - Favorilere ekle
-- `GET /api/favoriler/:userId` - Favorileri getir (en ucuz üstte)
-- `POST /api/ai-yorum` - AI analiz
-- `POST /api/indirim-bildirim-ayarla` - İndirim bildirimi ayarla
-- `GET /health` - Sistem durumu
+## ENV
+GEMINI_API_KEY=API_KEY_BURAYA
 
-## Kurulum
-```bash
-npm install
-npm start
+## Endpoint
+POST /ai-yorum
+Body:
+{
+  "title": "Ürün adı",
+  "store": "Mağaza adı"
+}
