@@ -1,7 +1,7 @@
 {
   "name": "fiyattakip-api",
-  "version": "2.0.0",
-  "description": "Fiyat Takip API - PWA Uygulaması için",
+  "version": "3.0.0",
+  "description": "Fiyat Takip API - Sepet özellikli",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,8 +9,6 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12",
     "@google/generative-ai": "^0.13.0"
   },
   "engines": {
