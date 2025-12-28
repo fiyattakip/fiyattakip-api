@@ -3,8 +3,23 @@ const cors = require('cors');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
-app.use(cors());
+
+// ==================== CORS DÜZELTMESİ ====================
+const corsOptions = {
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// OPTIONS istekleri için
+app.options('*', cors(corsOptions));
 
 // ==================== GEMINI AI ====================
 let geminiAI = null;
@@ -54,17 +69,37 @@ const urunVeritabani = {
     modeller: ['PlayStation 5', 'Xbox Series X', 'Nintendo Switch', 'Gaming PC'],
     fiyat: [8000, 30000],
     kategoriler: ['oyun', 'konsol']
+  },
+  'tablet': {
+    modeller: ['iPad Air', 'Samsung Galaxy Tab S9', 'Xiaomi Pad 7', 'Lenovo Tab'],
+    fiyat: [7000, 25000],
+    kategoriler: ['tablet', 'elektronik']
+  },
+  'akıllı saat': {
+    modeller: ['Apple Watch Series 9', 'Samsung Galaxy Watch 6', 'Xiaomi Mi Band 8', 'Garmin'],
+    fiyat: [1000, 15000],
+    kategoriler: ['saat', 'giyilebilir']
+  },
+  'monitör': {
+    modeller: ['Asus 27" 144Hz', 'LG UltraWide', 'Samsung Curved', 'Dell Ultrasharp'],
+    fiyat: [3000, 15000],
+    kategoriler: ['monitör', 'bilgisayar']
   }
 };
 
 // ==================== SEPET VERİTABANI ====================
 let sepetDB = [];
-let fiyatGecmisiDB = {}; // Ürün fiyat geçmişi
+let fiyatGecmisiDB = {};
+let favoriDB = {};
 
 // ==================== OTOMATİK TAMAMLAMA ====================
 app.get('/api/otomatik-tamamlama', (req, res) => {
+  console.log('🔍 Otomatik tamamlama isteği:', req.query.q);
+  
   const { q } = req.query;
-  if (!q || q.length < 2) return res.json({ sonuclar: [] });
+  if (!q || q.length < 2) {
+    return res.json({ sonuclar: [] });
+  }
   
   const query = q.toLowerCase();
   const sonuclar = [];
@@ -97,16 +132,9 @@ app.get('/api/otomatik-tamamlama', (req, res) => {
   
   // Genel öneriler
   const genelOneriler = [
-    'iPhone 13 128GB',
-    'Samsung Galaxy S23',
-    'MacBook Air M2',
-    'LG OLED TV',
-    'AirPods Pro',
-    'PlayStation 5',
-    'Xiaomi 13T Pro',
-    'Televizyon',
-    'Laptop',
-    'Kulaklık'
+    'iPhone 13 128GB', 'iPhone 15 Pro', 'Samsung Galaxy S23', 'MacBook Air M2',
+    'LG OLED TV', 'AirPods Pro', 'PlayStation 5', 'Xiaomi 13T Pro',
+    'Televizyon', 'Laptop', 'Kulaklık', 'Tablet', 'Akıllı Saat'
   ];
   
   genelOneriler.forEach(oner => {
@@ -131,14 +159,23 @@ app.get('/api/otomatik-tamamlama', (req, res) => {
     }
   });
   
-  res.json({ sonuclar: benzersizSonuclar.slice(0, 8) });
+  res.json({ 
+    success: true,
+    sonuclar: benzersizSonuclar.slice(0, 8),
+    query: q
+  });
 });
 
 // ==================== FİYAT ARAMA ====================
 app.post('/api/fiyat-cek', (req, res) => {
+  console.log('💰 Fiyat çekme isteği:', req.body);
+  
   try {
     const { urun, page = 1, sort = 'asc' } = req.body;
-    if (!urun) return res.json({ success: false, error: 'Ürün gerekli' });
+    
+    if (!urun) {
+      return res.json({ success: false, error: 'Ürün gerekli' });
+    }
     
     const query = urun.toLowerCase();
     let secilenModel = urun;
@@ -169,7 +206,10 @@ app.post('/api/fiyat-cek', (req, res) => {
         link: `https://www.${site.toLowerCase().replace(/ /g, '').replace('ç', 'c')}.com/ara?q=${encodeURIComponent(urun)}`,
         numericPrice: price,
         kategori: kategori,
-        tarih: new Date().toISOString()
+        tarih: new Date().toISOString(),
+        kargo: ['Ücretsiz', '50 TL', '100 TL', 'Ücretsiz (150 TL+)'][Math.floor(Math.random() * 4)],
+        degerlendirme: (Math.random() * 2 + 3).toFixed(1),
+        yorumSayisi: Math.floor(Math.random() * 1000) + 50
       };
     });
     
@@ -195,11 +235,6 @@ app.post('/api/fiyat-cek', (req, res) => {
       site: fiyatlar.find(f => f.numericPrice === enUcuzFiyat)?.site || 'Trendyol'
     });
     
-    // Geçmişi sınırla
-    if (fiyatGecmisiDB[urunKey].length > 50) {
-      fiyatGecmisiDB[urunKey] = fiyatGecmisiDB[urunKey].slice(-50);
-    }
-    
     res.json({
       success: true,
       query: urun,
@@ -210,16 +245,20 @@ app.post('/api/fiyat-cek', (req, res) => {
       siralama: sort,
       kategori: kategori,
       secilenModel: secilenModel,
-      enUcuzFiyat: enUcuzFiyat
+      enUcuzFiyat: enUcuzFiyat,
+      enUcuzSite: fiyatlar.find(f => f.numericPrice === enUcuzFiyat)?.site || 'Trendyol'
     });
     
   } catch (error) {
+    console.error('Fiyat çekme hatası:', error);
     res.json({ success: false, error: 'Sunucu hatası' });
   }
 });
 
-// ==================== GERÇEK AI YORUM ====================
+// ==================== AI YORUM ====================
 app.post('/api/ai-yorum', async (req, res) => {
+  console.log('🤖 AI yorum isteği:', req.body?.urun);
+  
   try {
     const { urun, fiyatlar, sepetUrunu } = req.body;
     
@@ -235,16 +274,14 @@ app.post('/api/ai-yorum', async (req, res) => {
     
     let prompt = '';
     if (sepetUrunu) {
-      // Sepet için özel analiz
-      prompt = `Bir alışveriş uzmanı olarak şu ürün için kısa ve net analiz yap (max 80 karakter):
+      prompt = `Bir alışveriş uzmanı olarak şu ürün için kısa analiz yap (max 80 karakter):
       
 Ürün: ${sepetUrunu.urun}
 Fiyat: ${sepetUrunu.fiyat}
 Site: ${sepetUrunu.site}
 
-Bu fiyat iyi mi? Almalı mı? Çok kısa ve net Türkçe yanıt ver. Emoji kullan.`;
+Bu fiyat iyi mi? Almalı mı? Çok kısa Türkçe yanıt ver. Emoji kullan.`;
     } else {
-      // Fiyat karşılaştırması için analiz
       const fiyatListesi = fiyatlar.map(f => `${f.site}: ${f.fiyat}`).join(', ');
       const prices = fiyatlar.map(f => f.numericPrice || parseInt(f.fiyat.replace(/\D/g, '')) || 0);
       const minPrice = Math.min(...prices.filter(p => p > 0));
@@ -274,6 +311,7 @@ Bu fiyatlar iyi mi? En iyi seçenek hangisi? Çok kısa Türkçe yanıt. Emoji k
     });
     
   } catch (error) {
+    console.error('AI yorum hatası:', error);
     res.json({
       success: true,
       aiYorum: "📊 Fiyat analizi yapılamadı. Fiyatları karşılaştırarak karar verebilirsiniz.",
@@ -284,6 +322,8 @@ Bu fiyatlar iyi mi? En iyi seçenek hangisi? Çok kısa Türkçe yanıt. Emoji k
 
 // ==================== SEPET İŞLEMLERİ ====================
 app.post('/api/sepet-ekle', (req, res) => {
+  console.log('🛒 Sepete ekleme:', req.body?.urun);
+  
   try {
     const { urun, site, fiyat, link, kategori, tip = 'otomatik' } = req.body;
     
@@ -315,13 +355,15 @@ app.post('/api/sepet-ekle', (req, res) => {
     });
     
   } catch (error) {
+    console.error('Sepet ekleme hatası:', error);
     res.json({ success: false, error: 'Sepete eklenemedi' });
   }
 });
 
 app.get('/api/sepet', (req, res) => {
+  console.log('📦 Sepet getir');
+  
   try {
-    // Tarihe göre sırala (yeniden eskiye)
     const siralanmisSepet = [...sepetDB].sort((a, b) => 
       new Date(b.eklenmeTarihi) - new Date(a.eklenmeTarihi)
     );
@@ -329,32 +371,25 @@ app.get('/api/sepet', (req, res) => {
     const toplam = siralanmisSepet.reduce((sum, item) => sum + item.numericPrice, 0);
     const ortalama = sepetDB.length > 0 ? Math.round(toplam / sepetDB.length) : 0;
     
-    // Kategori analizi
-    const kategoriAnaliz = {};
-    siralanmisSepet.forEach(item => {
-      const kat = item.kategori || 'Diğer';
-      if (!kategoriAnaliz[kat]) kategoriAnaliz[kat] = { toplam: 0, adet: 0 };
-      kategoriAnaliz[kat].toplam += item.numericPrice;
-      kategoriAnaliz[kat].adet += 1;
-    });
-    
     res.json({
       success: true,
       sepet: siralanmisSepet,
       toplamUrun: siralanmisSepet.length,
       toplamFiyat: toplam,
       ortalamaFiyat: ortalama,
-      kategoriAnaliz: kategoriAnaliz,
       enUcuz: sepetDB.length > 0 ? Math.min(...sepetDB.map(item => item.numericPrice)) : 0,
       enPahali: sepetDB.length > 0 ? Math.max(...sepetDB.map(item => item.numericPrice)) : 0
     });
     
   } catch (error) {
+    console.error('Sepet getirme hatası:', error);
     res.json({ success: false, error: 'Sepet getirilemedi' });
   }
 });
 
 app.delete('/api/sepet/:id', (req, res) => {
+  console.log('🗑️ Sepetten sil:', req.params.id);
+  
   try {
     const { id } = req.params;
     const baslangicAdet = sepetDB.length;
@@ -369,12 +404,15 @@ app.delete('/api/sepet/:id', (req, res) => {
     });
     
   } catch (error) {
+    console.error('Sepet silme hatası:', error);
     res.json({ success: false, error: 'Silinemedi' });
   }
 });
 
 // ==================== GRAFİK VERİSİ ====================
 app.get('/api/grafik', (req, res) => {
+  console.log('📊 Grafik verisi isteği');
+  
   try {
     if (sepetDB.length === 0) {
       return res.json({
@@ -413,7 +451,6 @@ app.get('/api/grafik', (req, res) => {
       tarih.setDate(tarih.getDate() - i);
       const tarihStr = tarih.toISOString().split('T')[0];
       
-      // O gün eklenen ürünler
       const gununUrunleri = sepetDB.filter(item => 
         item.eklenmeTarihi.split('T')[0] === tarihStr
       );
@@ -430,7 +467,7 @@ app.get('/api/grafik', (req, res) => {
       });
     }
     
-    // Sepet trendi (toplam fiyat değişimi)
+    // Sepet trendi
     const sepetTrend = [];
     const groupedByDate = {};
     
@@ -457,25 +494,27 @@ app.get('/api/grafik', (req, res) => {
       grafik: {
         kategoriler: kategoriData,
         fiyatGecmisi: fiyatGecmisi,
-        sepetTrend: sepetTrend.slice(-14), // Son 14 gün
+        sepetTrend: sepetTrend.slice(-14),
         istatistikler: {
           toplamUrun: sepetDB.length,
           toplamFiyat: sepetDB.reduce((sum, item) => sum + item.numericPrice, 0),
           ortalamaFiyat: Math.round(sepetDB.reduce((sum, item) => sum + item.numericPrice, 0) / sepetDB.length || 0),
           enCokKategori: kategoriData.length > 0 ? 
-            kategoriData.reduce((a, b) => a.adet > b.adet ? a : b).kategori : 'Yok',
-          gunlukOrtalama: Math.round(sepetDB.reduce((sum, item) => sum + item.numericPrice, 0) / Math.max(1, Object.keys(groupedByDate).length))
+            kategoriData.reduce((a, b) => a.adet > b.adet ? a : b).kategori : 'Yok'
         }
       }
     });
     
   } catch (error) {
+    console.error('Grafik hatası:', error);
     res.json({ success: false, error: 'Grafik verisi getirilemedi' });
   }
 });
 
 // ==================== FİYAT DÜŞÜŞ BİLDİRİMİ ====================
 app.get('/api/fiyat-dususleri', (req, res) => {
+  console.log('📉 Fiyat düşüşleri isteği');
+  
   try {
     const dususler = [];
     
@@ -499,17 +538,86 @@ app.get('/api/fiyat-dususleri', (req, res) => {
       }
     });
     
-    // Büyük düşüşlere göre sırala
     dususler.sort((a, b) => b.dususYuzdesi - a.dususYuzdesi);
     
     res.json({
       success: true,
-      dususler: dususler.slice(0, 10), // En fazla 10 düşüş
+      dususler: dususler.slice(0, 10),
       toplamDusus: dususler.length
     });
     
   } catch (error) {
+    console.error('Fiyat düşüş hatası:', error);
     res.json({ success: false, error: 'Fiyat düşüşleri getirilemedi' });
+  }
+});
+
+// ==================== FAVORİ İŞLEMLERİ ====================
+app.post('/api/favori-ekle', (req, res) => {
+  console.log('⭐ Favori ekle:', req.body?.urun);
+  
+  try {
+    const { userId = 'guest', urun, fiyat, site, kategori } = req.body;
+    
+    if (!favoriDB[userId]) {
+      favoriDB[userId] = [];
+    }
+    
+    const favoriItem = {
+      id: Date.now().toString(),
+      urun,
+      fiyat,
+      site: site || 'Genel',
+      kategori: kategori || 'genel',
+      eklenmeTarihi: new Date().toISOString(),
+      sonFiyat: parseInt(fiyat.toString().replace(/\D/g, '')) || 0
+    };
+    
+    const existingIndex = favoriDB[userId].findIndex(item => 
+      item.urun === urun && item.site === favoriItem.site
+    );
+    
+    if (existingIndex !== -1) {
+      favoriDB[userId][existingIndex] = favoriItem;
+    } else {
+      favoriDB[userId].push(favoriItem);
+    }
+    
+    res.json({
+      success: true,
+      favori: favoriItem,
+      toplamFavori: favoriDB[userId].length,
+      mesaj: existingIndex !== -1 ? 'Favori güncellendi' : 'Favorilere eklendi'
+    });
+    
+  } catch (error) {
+    console.error('Favori ekleme hatası:', error);
+    res.json({ success: false, error: 'Favori eklenemedi' });
+  }
+});
+
+app.get('/api/favoriler/:userId', (req, res) => {
+  console.log('⭐ Favoriler getir:', req.params.userId);
+  
+  try {
+    const { userId = 'guest' } = req.params;
+    const favoriler = favoriDB[userId] || [];
+    
+    const siraliFavoriler = [...favoriler].sort((a, b) => a.sonFiyat - b.sonFiyat);
+    
+    res.json({
+      success: true,
+      favoriler: siraliFavoriler,
+      toplam: siraliFavoriler.length,
+      istatistikler: {
+        toplamFiyat: siraliFavoriler.reduce((sum, item) => sum + item.sonFiyat, 0),
+        kategoriSayisi: [...new Set(siraliFavoriler.map(item => item.kategori))].length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Favoriler hatası:', error);
+    res.json({ success: false, error: 'Favoriler getirilemedi' });
   }
 });
 
@@ -530,8 +638,7 @@ app.get('/health', (req, res) => {
       'Gerçek AI yorum',
       'Sepet yönetimi',
       'Grafik analiz',
-      'Fiyat düşüş takibi',
-      'Fiyat geçmişi'
+      'Fiyat düşüş takibi'
     ],
     ai: geminiAI ? 'Aktif' : 'Pasif',
     sepet: sepetDB.length + ' ürün',
@@ -552,15 +659,39 @@ app.get('/api', (req, res) => {
       'GET /api/sepet - Sepeti getir',
       'GET /api/grafik - Grafik analiz',
       'GET /api/fiyat-dususleri - Fiyat düşüşleri',
-      'DELETE /api/sepet/:id - Sepetten sil'
+      'DELETE /api/sepet/:id - Sepetten sil',
+      'POST /api/favori-ekle - Favorilere ekle',
+      'GET /api/favoriler/:userId - Favorileri getir'
     ]
+  });
+});
+
+// ==================== ROOT ENDPOINT ====================
+app.get('/', (req, res) => {
+  res.json({
+    message: 'FiyatTakip API v4.0',
+    status: 'online',
+    docs: 'GET /api for endpoints',
+    health: 'GET /health for status'
+  });
+});
+
+// ==================== 404 HANDLER ====================
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Endpoint bulunamadı',
+    available: 'GET /api for available endpoints'
   });
 });
 
 // ==================== SERVER BAŞLATMA ====================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 FiyatTakip API v4.0 ${PORT} portunda`);
-  console.log(`🤖 AI: ${geminiAI ? 'AKTİF' : 'PASİF'}`);
+  console.log(`🤖 AI: ${geminiAI ? '✅ AKTİF' : '❌ PASİF'}`);
+  console.log(`📡 http://localhost:${PORT}`);
+  console.log(`🔍 Test: http://localhost:${PORT}/api/otomatik-tamamlama?q=iphone`);
+  console.log(`💰 Test: http://localhost:${PORT}/health`);
   console.log(`📊 Özellikler: Otomatik tamamlama, AI yorum, Sepet, Grafik`);
 });
