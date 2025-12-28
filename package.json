@@ -12,8 +12,8 @@
     "axios": "^1.6.0",
     "cheerio": "^1.0.0-rc.12",
     "@google/generative-ai": "^0.13.0"
-  },
+{
   "engines": {
-    "node": "18.x"
+    "node": ">=20.0.0"
   }
 }
