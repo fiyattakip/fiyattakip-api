@@ -363,7 +363,7 @@ app.post('/api/kamera-ai', async (req, res) => {
 });
 
 // 4. SAĞLIK KONTROLÜ
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({
     status: 'online',
     zaman: new Date().toLocaleString('tr-TR'),
@@ -383,6 +383,7 @@ app.get('/health', (req, res) => {
     }
   });
 });
+
 
 // ==================== YARDIMCI FONKSİYONLAR ====================
 function filterRelevantProducts(products, query) {
