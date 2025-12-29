@@ -296,7 +296,7 @@ ${priceLines}` : `Fiyatlar: (veri yok)`,
       `- Satıcı/garanti/iade/kargo ve ürün varyantı (GB/RAM) gibi 1-2 kontrol noktası ekle.`
     ].join('\n');
 
-    const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = gemini.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent(prompt);
     const text = (result && result.response && typeof result.response.text === 'function') ? result.response.text() : '';
 
