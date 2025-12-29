@@ -235,7 +235,7 @@ app.post('/api/ai-yorum', async (req, res) => {
     }
     
     // Gemini AI'ya soru hazırla
-    const model = geminiAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = geminiAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     
     const fiyatText = fiyatlar?.map(f => `${f.site}: ${f.fiyat}`).join('\n') || 'Fiyat bilgisi yok';
     
