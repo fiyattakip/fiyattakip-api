@@ -1,7 +1,7 @@
 services:
-  - type: web
-    name: flyattakip-api
-    env: node
-    buildCommand: npm install
-    startCommand: node server.js
-    nodeVersion: 20.18.0
+- type: web
+  name: fiyattakip-api
+  env: node
+  plan: free
+  buildCommand: npm install
+  startCommand: npm start

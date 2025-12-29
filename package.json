@@ -1,19 +1,18 @@
 {
   "name": "fiyattakip-api",
-  "version": "2.0.1",
-  "description": "FiyatTakip API - Render backend",
+  "version": "2.1.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12",
-    "@google/generative-ai": "^0.13.0"
-  },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "axios": "^1.6.8",
+    "cheerio": "^1.0.0-rc.12",
+    "@google/generative-ai": "^0.21.0"
   }
 }
