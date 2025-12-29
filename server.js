@@ -294,8 +294,7 @@ ${priceLines}` : `Fiyatlar: (veri yok)`,
       `- Fiyat yoksa: ürünün genel olarak alınabilirliğini değerlendir (kimlere uygun, kimlere uygun değil) ve 1 cümleyle “değer / değmez” yönünde net görüş ver.`,
       `- Klişe cümleler kullanma (örn: “en uygun seçeneği tercih edin”, “fiyatlar karşılaştırıldı”).`,
       `- Satıcı/garanti/iade/kargo ve ürün varyantı (GB/RAM) gibi 1-2 kontrol noktası ekle.`
-    ].join('
-');
+    ].join('\n');
 
     const model = gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContent(prompt);
