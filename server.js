@@ -385,6 +385,29 @@ app.get('/api/health', (req, res) => {
 });
 
 
+
+// (Uyumluluk) Eski endpoint: /health -> /api/health ile aynı yanıtı döndürür
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'online',
+    zaman: new Date().toLocaleString('tr-TR'),
+    versiyon: '2.0.0',
+    ozellikler: [
+      '4 site desteği (Trendyol, Hepsiburada, n11, Amazon)',
+      'Sayfalama (4 ürün/sayfa)',
+      'Sıralama (artan/azalan fiyat)',
+      'Gemini AI yorum',
+      'Kamera AI arama',
+      'Alakalı ürün filtresi'
+    ],
+    ai: geminiAI ? 'Aktif' : 'Pasif',
+    cache: {
+      prices: cache.prices.size,
+      favorites: cache.favorites.size
+    }
+  });
+});
+
 // ==================== YARDIMCI FONKSİYONLAR ====================
 function filterRelevantProducts(products, query) {
   const queryWords = query.toLowerCase().split(' ').filter(w => w.length > 2);
