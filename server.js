@@ -12,27 +12,9 @@ const PORT = process.env.PORT || 10000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const geminiAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
-console.log("🚀 FiyatTakip API ÇALIŞIYOR");
+console.log("🚀 FiyatTakip API ÇALIŞIYOR - AI:", geminiAI ? "AKTİF" : "PASİF");
 
-app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    service: "FiyatTakip API",
-    status: "running",
-    ai: geminiAI ? "active" : "inactive",
-    endpoints: ["/health", "/api/fiyat-cek", "/api/ai-yorum", "/api/kamera-ai"]
-  });
-});
-
-app.get("/health", (req, res) => {
-  res.json({
-    success: true,
-    status: "healthy",
-    ai: geminiAI ? "active" : "inactive"
-  });
-});
-
-// ========== GERÇEK ÇALIŞAN SCRAPER ==========
+// ==================== SCRAPER FONKSİYONLARI ====================
 async function scrapeTrendyol(query) {
   try {
     const url = `https://www.trendyol.com/sr?q=${encodeURIComponent(query)}`;
@@ -46,7 +28,6 @@ async function scrapeTrendyol(query) {
     const $ = cheerio.load(response.data);
     const products = [];
     
-    // TRENDYOL İÇİN TEST EDİLMİŞ SELECTOR
     $('div.p-card-wrppr, div[data-testid="product-card"]').slice(0, 8).each((i, el) => {
       const title = $(el).find('span.prdct-desc-cntnr-name, div.prdct-desc-cntnr-ttl, div.product-name').first().text().trim();
       const price = $(el).find('div.prc-box-dscntd, div.prc-box-sllng, div.discountedPrice').first().text().trim();
@@ -112,7 +93,26 @@ async function scrapeHepsiburada(query) {
   }
 }
 
-// ========== API ENDPOINT'LER ==========
+// ==================== API ENDPOINT'LER ====================
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    service: "FiyatTakip API",
+    status: "running",
+    ai: geminiAI ? "active" : "inactive",
+    endpoints: ["/health", "/api/fiyat-cek", "/api/ai-yorum", "/api/kamera-ai"]
+  });
+});
+
+app.get("/health", (req, res) => {
+  res.json({
+    success: true,
+    status: "healthy",
+    ai: geminiAI ? "active" : "inactive"
+  });
+});
+
+// 1. FIYAT ÇEKME
 app.post("/api/fiyat-cek", async (req, res) => {
   try {
     const { urun } = req.body;
@@ -122,7 +122,7 @@ app.post("/api/fiyat-cek", async (req, res) => {
     }
     
     const query = urun.trim();
-    console.log("🔍 Arama:", query);
+    console.log("🔍 Fiyat araması:", query);
     
     const [trendyolResults, hepsiburadaResults] = await Promise.allSettled([
       scrapeTrendyol(query),
@@ -130,14 +130,12 @@ app.post("/api/fiyat-cek", async (req, res) => {
     ]);
     
     let allProducts = [];
-    
     if (trendyolResults.status === 'fulfilled') allProducts.push(...trendyolResults.value);
     if (hepsiburadaResults.status === 'fulfilled') allProducts.push(...hepsiburadaResults.value);
     
     // Benzersiz ürünler
     const uniqueProducts = [];
     const seenLinks = new Set();
-    
     allProducts.forEach(p => {
       if (p.link && !seenLinks.has(p.link)) {
         seenLinks.add(p.link);
@@ -151,7 +149,7 @@ app.post("/api/fiyat-cek", async (req, res) => {
       success: true,
       query: query,
       toplamUrun: uniqueProducts.length,
-      fiyatlar: uniqueProducts.slice(0, 6) // Sadece 6 ürün göster
+      fiyatlar: uniqueProducts.slice(0, 6)
     });
     
   } catch (error) {
@@ -160,6 +158,7 @@ app.post("/api/fiyat-cek", async (req, res) => {
   }
 });
 
+// 2. GERÇEK AI YORUM (GEMINI)
 app.post("/api/ai-yorum", async (req, res) => {
   try {
     const { urun, fiyatlar = [] } = req.body;
@@ -170,85 +169,112 @@ app.post("/api/ai-yorum", async (req, res) => {
     
     console.log("🤖 AI yorum isteği:", urun);
     
-    // FALLBACK MESAJ (Gemini olmasa bile çalışır)
-    let aiResponse = `"${urun}" ürünü hakkında değerlendirme: `;
-    
-    if (fiyatlar.length > 0) {
-      const prices = fiyatlar.map(f => {
-        const match = (f.fiyat || "").match(/(\d+(?:[.,]\d+)*)/);
-        return match ? parseFloat(match[0].replace(/\./g, '').replace(',', '.')) : null;
-      }).filter(p => p !== null);
-      
-      if (prices.length > 0) {
-        const min = Math.min(...prices);
-        const max = Math.max(...prices);
-        aiResponse += `Fiyatlar ${min.toFixed(2)} TL ile ${max.toFixed(2)} TL arasında. `;
-        
-        if (max - min > min * 0.3) {
-          aiResponse += `Fiyat farkı yüksek, dikkatli olun.`;
-        } else {
-          aiResponse += `Fiyatlar makul görünüyor.`;
-        }
-      }
-    } else {
-      aiResponse += "Henüz fiyat bilgisi yok. Farklı sitelerde karşılaştırma yapın.";
+    // EĞER API KEY YOKSA FALLBACK
+    if (!geminiAI) {
+      console.warn("⚠️  GEMINI_API_KEY tanımlı değil, fallback mesaj dönülüyor.");
+      return res.json({
+        success: true,
+        aiYorum: `"${urun}" için fiyat analizi yapılamadı. Lütfen API key ayarlarını kontrol edin.`,
+        yorum: `"${urun}" için fiyat analizi yapılamadı. Lütfen API key ayarlarını kontrol edin.`
+      });
     }
+    
+    // GERÇEK GEMINI SORGUSU
+    const model = geminiAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
+    let prompt = `Aşağıdaki ürün hakkında kısa, net ve faydalı bir alışveriş tavsiyesi ver. Sadece tavsiyeni yaz, başlık vs. ekleme.\n\n`;
+    prompt += `**Ürün:** ${urun}\n\n`;
+    
+    if (fiyatlar && fiyatlar.length > 0) {
+      prompt += `**Fiyat Bilgileri:**\n`;
+      fiyatlar.forEach(f => {
+        prompt += `- ${f.site}: ${f.fiyat}\n`;
+      });
+      prompt += `\nBu fiyatları karşılaştırarak, kullanıcıya en iyi değeri nerede bulabileceğini, fiyatın uygun olup olmadığını veya alternatif siteleri öner.`;
+    } else {
+      prompt += `Bu ürün için henüz fiyat bilgisi yok. Genel olarak bu tür ürünlerde nelere dikkat etmeli, nereden araştırma yapmalı?`;
+    }
+    
+    prompt += `\nCevabını Türkçe ve günlük konuşma diliyle ver.`;
+    
+    const result = await model.generateContent(prompt);
+    const aiResponse = result.response.text().trim();
     
     res.json({
       success: true,
       aiYorum: aiResponse,
-      yorum: aiResponse,
-      detay: {
-        enUcuzFiyat: "Bilgi yok",
-        enPahaliFiyat: "Bilgi yok",
-        ortalamaFiyat: "Bilgi yok"
-      }
+      yorum: aiResponse
     });
     
   } catch (error) {
-    console.error("AI yorum hatası:", error);
-    res.status(500).json({ success: false, error: "AI yorum yapılamadı" });
+    console.error("❌ AI yorum hatası:", error);
+    res.status(500).json({
+      success: false,
+      error: "AI yorum yapılamadı",
+      message: error.message || "Bilinmeyen hata"
+    });
   }
 });
 
+// 3. GERÇEK KAMERA AI (GEMINI VISION)
 app.post("/api/kamera-ai", async (req, res) => {
   try {
-    const { image } = req.body;
+    const { image, mime = 'image/jpeg' } = req.body;
     
     if (!image) {
-      return res.status(400).json({ success: false, error: "Görsel gerekli" });
+      return res.status(400).json({ success: false, error: "Görsel verisi (base64) gerekli" });
     }
     
-    console.log("📸 Kamera AI isteği");
+    console.log("📸 Kamera AI isteği - Görsel analizi");
     
-    // BASİT TAHMİN (her zaman çalışır)
-    const products = [
-      "iPhone telefon",
-      "Samsung telefon", 
-      "Nike ayakkabı",
-      "Adidas ayakkabı",
-      "Kitap",
-      "Laptop",
-      "Televizyon",
-      "Kulaklık"
-    ];
+    // EĞER API KEY YOKSA FALLBACK
+    if (!geminiAI) {
+      console.warn("⚠️  GEMINI_API_KEY tanımlı değil, random ürün dönülüyor.");
+      const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört"];
+      const randomProduct = products[Math.floor(Math.random() * products.length)];
+      return res.json({
+        success: true,
+        urunTahmini: randomProduct,
+        tespitEdilen: randomProduct
+      });
+    }
     
-    const randomProduct = products[Math.floor(Math.random() * products.length)];
+    // GERÇEK GEMINI VISION
+    const model = geminiAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
+    const prompt = "Bu fotoğrafta görünen ürün nedir? Sadece ürünün adını veya kısa açıklamasını Türkçe olarak yaz. Örneğin: 'iPhone 15', 'Siyah spor ayakkabı', 'Kahve makinesi'. Başka açıklama ekleme.";
+    
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType: mime,
+          data: image
+        }
+      }
+    ]);
+    
+    const detectedText = result.response.text().trim();
+    console.log("✅ Görselden tespit edilen:", detectedText);
     
     res.json({
       success: true,
-      urunTahmini: randomProduct,
-      tespitEdilen: randomProduct,
-      aciklama: "Görsel analiz edildi. Tahmini ürün: " + randomProduct
+      urunTahmini: detectedText,
+      tespitEdilen: detectedText,
+      aciklama: `Görsel analiz sonucu: ${detectedText}`
     });
     
   } catch (error) {
-    console.error("Kamera AI hatası:", error);
-    res.status(500).json({ success: false, error: "Kamera analiz hatası" });
+    console.error("❌ Kamera AI hatası:", error);
+    res.status(500).json({
+      success: false,
+      error: "Görsel analiz edilemedi",
+      message: error.message || "Bilinmeyen hata"
+    });
   }
 });
 
-// ESKİ ENDPOINT'LER
+// ESKİ ENDPOINT YÖNLENDİRMELERİ (geriye uyumluluk)
 app.post("/fiyat-cek", (req, res) => {
   req.url = "/api/fiyat-cek";
   app._router.handle(req, res, () => {});
@@ -266,4 +292,5 @@ app.post("/kamera-ai", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`✅ API http://localhost:${PORT} adresinde çalışıyor`);
+  console.log(`🔑 Gemini AI Durumu: ${geminiAI ? "AKTİF ✓" : "PASİF (GEMINI_API_KEY bekleniyor)"}`);
 });
