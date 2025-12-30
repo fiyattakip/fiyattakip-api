@@ -158,6 +158,7 @@ app.post("/api/fiyat-cek", async (req, res) => {
 });
 
 // 2. GERÇEK AI YORUM (GEMINI)
+// server.js'de AI endpoint'ini bulun ve bu kodu yapıştırın
 app.post("/api/ai-yorum", async (req, res) => {
   try {
     const { urun, fiyatlar = [], apiKey } = req.body;
@@ -168,95 +169,80 @@ app.post("/api/ai-yorum", async (req, res) => {
     
     console.log("🤖 AI yorum isteği:", urun);
     
-    // API Key kontrolü
-    if (!apiKey && !GEMINI_API_KEY) {
+    // API Key kontrolü - ÖNEMLİ: Hem body'den hem de environment'dan kontrol
+    const apiKeyToUse = apiKey || GEMINI_API_KEY;
+    
+    if (!apiKeyToUse) {
       return res.status(400).json({ 
         success: false, 
-        error: "Gemini API Key gerekli. Lütfen uygulama ayarlarından ekleyin." 
+        error: "Gemini API Key gerekli. Lütfen uygulama ayarlarından ekleyin veya sunucuya GEMINI_API_KEY ekleyin." 
       });
     }
-    
-    const apiKeyToUse = apiKey || GEMINI_API_KEY;
     
     // Gemini AI başlat
     const genAI = new GoogleGenerativeAI(apiKeyToUse);
     
-    // HANGİ MODELLERİ DENEYELİM (sırayla)
-    const modelsToTry = [
-      "gemini-1.0-pro",           // 1. öncelik
-      "models/gemini-1.0-pro",    // 2. öncelik  
-      "gemini-pro",               // 3. öncelik
-      "gemini-1.5-pro-latest",    // 4. öncelik
-      "gemini-1.5-flash-latest"   // 5. öncelik (ücretsiz)
-    ];
+    // TEK VE DOĞRU MODEL İSMİ:
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
-    let aiResponse = "";
-    let lastError = "";
+    // Prompt hazırla
+    let prompt = `${urun} ürünü hakkında alışveriş tavsiyesi ver. ` +
+                 `Fiyat karşılaştırması yap ve satın alma önerisi ver. ` +
+                 `Türkçe, kısa ve net cevap ver.`;
     
-    // Modelleri sırayla dene
-    for (const modelName of modelsToTry) {
-      try {
-        console.log(`🔍 Model deneniyor: ${modelName}`);
-        
-        const model = genAI.getGenerativeModel({ model: modelName });
-        
-        // Prompt hazırla
-        let prompt = `${urun} ürünü hakkında alışveriş tavsiyesi ver.\n`;
-        
-        if (fiyatlar && fiyatlar.length > 0) {
-          prompt += `Fiyatlar:\n`;
-          fiyatlar.forEach(f => {
-            prompt += `- ${f.site}: ${f.fiyat}\n`;
-          });
-          prompt += `\nBu fiyatlar uygun mu? Hangi siteyi önerirsin?`;
-        }
-        
-        prompt += `\nTürkçe cevap ver, kısa ve net olsun.`;
-        
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        aiResponse = response.text().trim();
-        
-        console.log(`✅ Model çalıştı: ${modelName}`);
-        
-        // Başarılı oldu, döngüden çık
-        res.json({
-          success: true,
-          aiYorum: aiResponse,
-          yorum: aiResponse,
-          modelUsed: modelName
-        });
-        
-        return; // Fonksiyondan çık
-        
-      } catch (modelError) {
-        lastError = modelError.message;
-        console.log(`❌ Model başarısız (${modelName}):`, modelError.message);
-        // Sonraki modeli dene
-      }
+    if (fiyatlar && fiyatlar.length > 0) {
+      prompt += `\n\nFiyatlar:\n`;
+      fiyatlar.forEach(f => {
+        prompt += `- ${f.site}: ${f.fiyat}\n`;
+      });
     }
     
-    // Hiçbir model çalışmadı
-    throw new Error(`Hiçbir model çalışmadı. Son hata: ${lastError}`);
+    console.log("📝 Model kullanılıyor: gemini-1.5-flash");
     
-  } catch (error) {
-    console.error("❌ AI yorum hatası:", error);
-    
-    // Basit fallback mesaj
-    const fallbackResponse = `"${req.body.urun || 'Bu ürün'}" için fiyat analizi yapılamadı. ` +
-                             `Doğrudan sitelerde arama yapmanızı öneririm.`;
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const aiResponse = response.text().trim();
     
     res.json({
       success: true,
-      aiYorum: fallbackResponse,
-      yorum: fallbackResponse,
-      error: error.message,
-      isFallback: true
+      aiYorum: aiResponse,
+      yorum: aiResponse,
+      model: "gemini-1.5-flash"
+    });
+    
+  } catch (error) {
+    console.error("❌ AI yorum hatası:", error.message);
+    
+    // Daha açıklayıcı hata mesajı
+    let errorMessage = "AI yorum yapılamadı";
+    let statusCode = 500;
+    
+    if (error.message.includes("API key")) {
+      errorMessage = "Geçersiz API Key. Lütfen doğru Gemini API Key girin.";
+      statusCode = 401;
+    } else if (error.message.includes("quota")) {
+      errorMessage = "Günlük ücretsiz kullanım limiti doldu. Yarın tekrar deneyin.";
+      statusCode = 429;
+    } else if (error.message.includes("model") || error.message.includes("404")) {
+      errorMessage = "Model bulunamadı. Lütfen 'gemini-1.5-flash' model adını kontrol edin.";
+      statusCode = 400;
+    }
+    
+    // Fallback mesaj - kullanıcı her durumda bir yanıt alsın
+    res.json({
+      success: true,
+      aiYorum: `"${req.body.urun || 'Bu ürün'}" için detaylı analiz şu an yapılamıyor. ` +
+               `Doğrudan Trendyol veya Hepsiburada'da arama yapmanızı öneririm.`,
+      yorum: `"${req.body.urun || 'Bu ürün'}" için detaylı analiz şu an yapılamıyor. ` +
+             `Doğrudan Trendyol veya Hepsiburada'da arama yapmanızı öneririm.`,
+      isFallback: true,
+      error: errorMessage
     });
   }
 });
 
 // 3. GERÇEK KAMERA AI (GEMINI VISION)
+// Kamera AI endpoint'inde de model adını düzeltin
 app.post("/api/kamera-ai", async (req, res) => {
   try {
     const { image, mime = 'image/jpeg' } = req.body;
@@ -267,9 +253,8 @@ app.post("/api/kamera-ai", async (req, res) => {
     
     console.log("📸 Kamera AI isteği - Görsel analizi");
     
-    // Environment API Key kullan
+    // API Key kontrolü
     if (!GEMINI_API_KEY) {
-      console.warn("⚠️ GEMINI_API_KEY tanımlı değil");
       const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört"];
       const randomProduct = products[Math.floor(Math.random() * products.length)];
       return res.json({
@@ -282,90 +267,46 @@ app.post("/api/kamera-ai", async (req, res) => {
     // Gemini AI başlat
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     
-    // Vision modellerini dene
-    const visionModels = [
-      "gemini-pro-vision",
-      "models/gemini-pro-vision",
-      "gemini-1.0-pro-vision"
-    ];
+    // TEK VE DOĞRU MODEL İSMİ:
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
-    let detectedText = "";
-    let lastVisionError = "";
+    const prompt = "Bu fotoğrafta ne görüyorsun? Sadece ürün adını Türkçe söyle.";
     
-    for (const modelName of visionModels) {
-      try {
-        console.log(`🔍 Vision model deneniyor: ${modelName}`);
-        
-        const model = genAI.getGenerativeModel({ model: modelName });
-        
-        const prompt = "Bu fotoğrafta ne görüyorsun? Sadece ürün adını Türkçe söyle.";
-        
-        const result = await model.generateContent([
-          prompt,
-          {
-            inlineData: {
-              mimeType: mime,
-              data: image
-            }
-          }
-        ]);
-        
-        detectedText = result.response.text().trim();
-        console.log(`✅ Vision model çalıştı (${modelName}):`, detectedText);
-        
-        res.json({
-          success: true,
-          urunTahmini: detectedText,
-          tespitEdilen: detectedText,
-          modelUsed: modelName
-        });
-        
-        return;
-        
-      } catch (visionError) {
-        lastVisionError = visionError.message;
-        console.log(`❌ Vision model başarısız (${modelName}):`, visionError.message);
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType: mime,
+          data: image
+        }
       }
-    }
+    ]);
     
-    // Vision modelleri çalışmazsa, normal model dene
-    try {
-      console.log("🔍 Vision modeller çalışmadı, normal model deneniyor...");
-      const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
-      
-      const prompt = `Bu base64 görselde ne olduğunu tahmin et: ${image.substring(0, 100)}... Sadece ürün adını Türkçe söyle.`;
-      
-      const result = await model.generateContent(prompt);
-      detectedText = result.response.text().trim();
-      
-      res.json({
-        success: true,
-        urunTahmini: detectedText,
-        tespitEdilen: detectedText,
-        modelUsed: "gemini-1.0-pro (text-only)"
-      });
-      
-    } catch (finalError) {
-      throw new Error(`Vision analiz başarısız: ${lastVisionError}`);
-    }
+    const detectedText = result.response.text().trim();
+    console.log("✅ Görselden tespit edilen:", detectedText);
+    
+    res.json({
+      success: true,
+      urunTahmini: detectedText,
+      tespitEdilen: detectedText,
+      model: "gemini-1.5-flash"
+    });
     
   } catch (error) {
     console.error("❌ Kamera AI hatası:", error);
     
     // Fallback
-    const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört", "çanta", "saat"];
+    const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört"];
     const randomProduct = products[Math.floor(Math.random() * products.length)];
     
     res.json({
       success: true,
       urunTahmini: randomProduct,
       tespitEdilen: randomProduct,
-      isFallback: true,
-      error: error.message
+      isFallback: true
     });
   }
 });
-
 // ESKİ ENDPOINT YÖNLENDİRMELERİ (geriye uyumluluk)
 app.post("/fiyat-cek", (req, res) => {
   req.url = "/api/fiyat-cek";
