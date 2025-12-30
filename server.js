@@ -180,7 +180,13 @@ app.post("/api/ai-yorum", async (req, res) => {
     }
     
     // GERÇEK GEMINI SORGUSU
-    const model = geminiAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // HATALI KOD (muhtemelen):
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+// DOĞRU KOD:
+const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+// VEYA:
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
     
     let prompt = `Aşağıdaki ürün hakkında kısa, net ve faydalı bir alışveriş tavsiyesi ver. Sadece tavsiyeni yaz, başlık vs. ekleme.\n\n`;
     prompt += `**Ürün:** ${urun}\n\n`;
