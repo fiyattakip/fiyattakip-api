@@ -10,9 +10,9 @@ app.use(cors({ origin: true }));
 
 const PORT = process.env.PORT || 10000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const geminiAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 
-console.log("🚀 FiyatTakip API ÇALIŞIYOR - AI:", geminiAI ? "AKTİF" : "PASİF");
+console.log("🚀 FiyatTakip API ÇALIŞIYOR");
+console.log("🔑 Gemini API Key:", GEMINI_API_KEY ? "MEVCUT" : "YOK");
 
 // ==================== SCRAPER FONKSİYONLARI ====================
 async function scrapeTrendyol(query) {
@@ -99,7 +99,6 @@ app.get("/", (req, res) => {
     success: true,
     service: "FiyatTakip API",
     status: "running",
-    ai: geminiAI ? "active" : "inactive",
     endpoints: ["/health", "/api/fiyat-cek", "/api/ai-yorum", "/api/kamera-ai"]
   });
 });
@@ -108,7 +107,7 @@ app.get("/health", (req, res) => {
   res.json({
     success: true,
     status: "healthy",
-    ai: geminiAI ? "active" : "inactive"
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -161,7 +160,7 @@ app.post("/api/fiyat-cek", async (req, res) => {
 // 2. GERÇEK AI YORUM (GEMINI)
 app.post("/api/ai-yorum", async (req, res) => {
   try {
-    const { urun, fiyatlar = [] } = req.body;
+    const { urun, fiyatlar = [], apiKey } = req.body;
     
     if (!urun || urun.trim().length < 2) {
       return res.status(400).json({ success: false, error: "Ürün adı gerekli" });
@@ -169,24 +168,22 @@ app.post("/api/ai-yorum", async (req, res) => {
     
     console.log("🤖 AI yorum isteği:", urun);
     
-    // EĞER API KEY YOKSA FALLBACK
-    if (!geminiAI) {
-      console.warn("⚠️  GEMINI_API_KEY tanımlı değil, fallback mesaj dönülüyor.");
-      return res.json({
-        success: true,
-        aiYorum: `"${urun}" için fiyat analizi yapılamadı. Lütfen API key ayarlarını kontrol edin.`,
-        yorum: `"${urun}" için fiyat analizi yapılamadı. Lütfen API key ayarlarını kontrol edin.`
+    // Kullanıcıdan gelen API Key'i veya environment key'i kullan
+    const apiKeyToUse = apiKey || GEMINI_API_KEY;
+    
+    if (!apiKeyToUse) {
+      console.warn("⚠️ API Key bulunamadı");
+      return res.status(400).json({ 
+        success: false, 
+        error: "Gemini API Key gerekli. Lütfen uygulama ayarlarından ekleyin." 
       });
     }
     
-    // GERÇEK GEMINI SORGUSU
-    // HATALI KOD (muhtemelen):
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-// DOĞRU KOD:
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-// VEYA:
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    // Gemini AI başlat
+    const genAI = new GoogleGenerativeAI(apiKeyToUse);
+    
+    // DOĞRU MODEL İSMİ: "gemini-pro" kullan
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
     
     let prompt = `Aşağıdaki ürün hakkında kısa, net ve faydalı bir alışveriş tavsiyesi ver. Sadece tavsiyeni yaz, başlık vs. ekleme.\n\n`;
     prompt += `**Ürün:** ${urun}\n\n`;
@@ -214,10 +211,21 @@ const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
     
   } catch (error) {
     console.error("❌ AI yorum hatası:", error);
+    
+    // Hata türüne göre mesaj
+    let errorMessage = "AI yorum yapılamadı";
+    if (error.message.includes("404") || error.message.includes("not found")) {
+      errorMessage = "Gemini modeli bulunamadı. Model: gemini-pro kullanılmalı.";
+    } else if (error.message.includes("API key") || error.message.includes("API_KEY")) {
+      errorMessage = "Geçersiz Gemini API Key. Lütfen doğru key girin.";
+    } else if (error.message.includes("quota")) {
+      errorMessage = "API kotası doldu. Daha sonra tekrar deneyin.";
+    }
+    
     res.status(500).json({
       success: false,
-      error: "AI yorum yapılamadı",
-      message: error.message || "Bilinmeyen hata"
+      error: errorMessage,
+      details: error.message
     });
   }
 });
@@ -233,9 +241,9 @@ app.post("/api/kamera-ai", async (req, res) => {
     
     console.log("📸 Kamera AI isteği - Görsel analizi");
     
-    // EĞER API KEY YOKSA FALLBACK
-    if (!geminiAI) {
-      console.warn("⚠️  GEMINI_API_KEY tanımlı değil, random ürün dönülüyor.");
+    // Environment API Key kullan
+    if (!GEMINI_API_KEY) {
+      console.warn("⚠️ GEMINI_API_KEY tanımlı değil");
       const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört"];
       const randomProduct = products[Math.floor(Math.random() * products.length)];
       return res.json({
@@ -245,8 +253,11 @@ app.post("/api/kamera-ai", async (req, res) => {
       });
     }
     
-    // GERÇEK GEMINI VISION
-    const model = geminiAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Gemini AI başlat
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    
+    // Vision için doğru model
+    const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
     
     const prompt = "Bu fotoğrafta görünen ürün nedir? Sadece ürünün adını veya kısa açıklamasını Türkçe olarak yaz. Örneğin: 'iPhone 15', 'Siyah spor ayakkabı', 'Kahve makinesi'. Başka açıklama ekleme.";
     
@@ -298,5 +309,4 @@ app.post("/kamera-ai", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`✅ API http://localhost:${PORT} adresinde çalışıyor`);
-  console.log(`🔑 Gemini AI Durumu: ${geminiAI ? "AKTİF ✓" : "PASİF (GEMINI_API_KEY bekleniyor)"}`);
 });
