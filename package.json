@@ -1,13 +1,17 @@
 {
   "name": "fiyattakip-api",
-  "version": "1.0.0",
+  "version": "2.2.0",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
-    "express": "^4.19.2",
     "cors": "^2.8.5",
-    "axios": "^1.6.8"
+    "express": "^4.19.2",
+    "@google/generative-ai": "^0.21.0"
   }
 }
