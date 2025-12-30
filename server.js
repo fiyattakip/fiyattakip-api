@@ -1,4 +1,4 @@
-// server.js - TAM TEMİZ VERSİYON
+// server.js - TAM TEMİZ VE TEK OLAN
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
@@ -8,8 +8,7 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(cors({ origin: true }));
 
-const PORT = process.env.PORT || 3000; // 3000 yerine 1000 de olabilir
-
+const PORT = process.env.PORT || 3000;
 console.log("🚀 FiyatTakip API ÇALIŞIYOR");
 
 // ==================== SCRAPER FONKSİYONLARI ====================
@@ -130,7 +129,6 @@ app.post("/api/fiyat-cek", async (req, res) => {
     if (trendyolResults.status === 'fulfilled') allProducts.push(...trendyolResults.value);
     if (hepsiburadaResults.status === 'fulfilled') allProducts.push(...hepsiburadaResults.value);
     
-    // Benzersiz ürünler
     const uniqueProducts = [];
     const seenLinks = new Set();
     allProducts.forEach(p => {
@@ -155,7 +153,7 @@ app.post("/api/fiyat-cek", async (req, res) => {
   }
 });
 
-// 2. GERÇEK ÇALIŞAN AI YORUM (GEMINI)
+// 2. GERÇEK AI YORUM
 app.post("/api/ai-yorum", async (req, res) => {
   console.log("=== AI YORUM İSTEĞİ BAŞLADI ===");
   
@@ -169,7 +167,6 @@ app.post("/api/ai-yorum", async (req, res) => {
     console.log("📝 Ürün:", urun);
     console.log("🔑 API Key (ilk 15):", apiKey ? apiKey.substring(0, 15) + "..." : "YOK");
     
-    // API KEY KONTROLÜ
     if (!apiKey) {
       console.log("❌ API Key yok");
       return res.status(400).json({ 
@@ -178,39 +175,32 @@ app.post("/api/ai-yorum", async (req, res) => {
       });
     }
     
-    // GOOGLE GEMINI API - DOĞRUDAN İSTEK
     const API_BASE = "https://generativelanguage.googleapis.com";
-    const API_VERSION = "v1";  // v1beta yerine v1 kullan
+    const API_VERSION = "v1";
     
-    // ÇALIŞAN MODEL LİSTESİ (güncel)
     const modelsToTry = [
-      "gemini-1.5-flash",      // En yaygın
-      "gemini-1.0-pro",        // Standart
-      "gemini-1.5-pro",        // Pro
-      "gemini-2.0-flash-exp",  // Deneysel
-      "gemini-2.0-flash-lite"  // Lite
+      "gemini-1.5-flash",
+      "gemini-1.0-pro",
+      "gemini-1.5-pro",
+      "gemini-2.0-flash-exp",
+      "gemini-2.0-flash-lite"
     ];
     
     let aiResponse = "";
     let workingModel = "";
-    let lastError = "";
     
-    // HER MODELİ DENE
     for (const modelName of modelsToTry) {
       try {
         console.log(`🔄 Model deneniyor: ${modelName}`);
         
         const url = `${API_BASE}/${API_VERSION}/models/${modelName}:generateContent?key=${apiKey}`;
         
-        // PROMPT HAZIRLA
         let prompt = `Aşağıdaki ürün hakkında kısa, faydalı bir alışveriş tavsiyesi ver:\n\n`;
         prompt += `**Ürün:** ${urun}\n\n`;
         
         if (fiyatlar && fiyatlar.length > 0) {
           prompt += `**Fiyat Bilgisi:**\n`;
-          fiyatlar.forEach(f => {
-            prompt += `- ${f.site}: ${f.fiyat}\n`;
-          });
+          fiyatlar.forEach(f => prompt += `- ${f.site}: ${f.fiyat}\n`);
           prompt += `\nBu fiyat uygun mu? Satın almak için önerin nedir?\n`;
         } else {
           prompt += `Bu ürünü alırken nelere dikkat etmeliyim?\n`;
@@ -218,22 +208,12 @@ app.post("/api/ai-yorum", async (req, res) => {
         
         prompt += `\nCevabını Türkçe ve 100 kelimeyi geçmeyecek şekilde ver.`;
         
-        console.log(`📤 İstek gönderiliyor: ${modelName}`);
-        
         const response = await fetch(url, {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({
-            contents: [{
-              parts: [{ text: prompt }]
-            }],
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 300
-            }
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 300 }
           })
         });
         
@@ -241,33 +221,22 @@ app.post("/api/ai-yorum", async (req, res) => {
         
         if (response.ok) {
           const data = await response.json();
-          console.log(`✅ Model çalıştı: ${modelName}`);
-          
           aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Yanıt alınamadı.";
           workingModel = modelName;
           
-          // YANITI KONTROL ET
           if (aiResponse.length < 10 || aiResponse.includes("API") || aiResponse.includes("key")) {
             console.log(`⚠️ Yanıt çok kısa veya hatalı, diğer model deneniyor...`);
-            continue; // Diğer modeli dene
+            continue;
           }
           
           console.log(`📝 AI Yanıtı (ilk 50 karakter): ${aiResponse.substring(0, 50)}...`);
-          break; // Başarılı, döngüden çık
-          
-        } else {
-          const errorText = await response.text();
-          lastError = `HTTP ${response.status}: ${errorText.substring(0, 100)}`;
-          console.log(`❌ ${modelName} çalışmadı:`, lastError);
+          break;
         }
-        
       } catch (error) {
-        lastError = error.message;
         console.log(`❌ ${modelName} hatası:`, error.message);
       }
     }
     
-    // SONUÇ
     if (aiResponse && aiResponse.length > 20) {
       console.log("🎉 GERÇEK AI YANITI BAŞARILI!");
       
@@ -282,34 +251,13 @@ app.post("/api/ai-yorum", async (req, res) => {
     } else {
       console.log("⚠️ Hiçbir model çalışmadı, fallback gönderiliyor...");
       
-      // AKILLI FALLBACK
-      const fallbackMsg = `"${urun}" ürününü alırken dikkat etmeniz gerekenler:\n\n`;
-      
-      if (urun.toLowerCase().includes("tablet") || urun.toLowerCase().includes("pad")) {
-        fallbackMsg += `• Ekran kalitesi ve çözünürlüğe dikkat edin\n`;
-        fallbackMsg += `• İşlemci performansı önemli (Snapdragon tercih edin)\n`;
-        fallbackMsg += `• RAM ve depolama alanını ihtiyacınıza göre seçin\n`;
-        fallbackMsg += `• Batarya ömrü uzun olan modelleri tercih edin\n`;
-      } else if (urun.toLowerCase().includes("telefon") || urun.toLowerCase().includes("iphone")) {
-        fallbackMsg += `• İşlemci ve RAM performansına bakın\n`;
-        fallbackMsg += `• Kamera kalitesi ve özelliklerini kontrol edin\n`;
-        fallbackMsg += `• Batarya kapasitesi ve şarj hızı önemli\n`;
-        fallbackMsg += `• Ekran boyutu ve teknolojisini değerlendirin\n`;
-      } else {
-        fallbackMsg += `• Ürün özelliklerini detaylıca inceleyin\n`;
-        fallbackMsg += `• Kullanıcı yorumlarını mutlaka okuyun\n`;
-        fallbackMsg += `• Farklı satıcılardan fiyat karşılaştırması yapın\n`;
-        fallbackMsg += `• Garanti ve iade koşullarını kontrol edin\n`;
-      }
-      
-      fallbackMsg += `\nTrendyol, Hepsiburada ve Amazon'da fiyatları karşılaştırın.`;
+      const fallbackMsg = `"${urun}" ürününü alırken Trendyol, Hepsiburada ve Amazon'da fiyatları karşılaştırın. Ürün yorumlarını okuyun ve güvenilir satıcılardan alın.`;
       
       res.json({
         success: true,
         aiYorum: fallbackMsg,
         yorum: fallbackMsg,
-        isFallback: true,
-        error: lastError
+        isFallback: true
       });
     }
     
@@ -318,10 +266,8 @@ app.post("/api/ai-yorum", async (req, res) => {
     
     res.json({
       success: true,
-      aiYorum: `"${req.body.urun || 'Bu ürün'}" için detaylı AI analizi şu an yapılamıyor. ` +
-               `Ürün özelliklerini ve kullanıcı yorumlarını dikkatlice incelemenizi öneririm.`,
-      yorum: `"${req.body.urun || 'Bu ürün'}" için detaylı AI analizi şu an yapılamıyor. ` +
-             `Ürün özelliklerini ve kullanıcı yorumlarını dikkatlice incelemenizi öneririm.`,
+      aiYorum: `"${req.body.urun || 'Bu ürün'}" için AI analizi şu an yapılamıyor.`,
+      yorum: `"${req.body.urun || 'Bu ürün'}" için AI analizi şu an yapılamıyor.`,
       isError: true
     });
   }
@@ -329,7 +275,7 @@ app.post("/api/ai-yorum", async (req, res) => {
   console.log("=== AI YORUM İSTEĞİ TAMAMLANDI ===");
 });
 
-// 3. KAMERA AI (Aynı kalabilir)
+// 3. KAMERA AI (SADECE 1 TANE)
 app.post("/api/kamera-ai", async (req, res) => {
   try {
     const { image, apiKey } = req.body;
@@ -343,7 +289,6 @@ app.post("/api/kamera-ai", async (req, res) => {
     
     console.log("📸 Kamera AI isteği");
     
-    // BASİT FALLBACK (şimdilik)
     const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört"];
     const randomProduct = products[Math.floor(Math.random() * products.length)];
     
@@ -366,7 +311,7 @@ app.post("/api/kamera-ai", async (req, res) => {
   }
 });
 
-// ESKİ ENDPOINT YÖNLENDİRMELERİ (Aynı kalacak)
+// ESKİ ENDPOINT YÖNLENDİRMELERİ (SADECE 1 TANE)
 app.post("/fiyat-cek", (req, res) => {
   req.url = "/api/fiyat-cek";
   app._router.handle(req, res, () => {});
@@ -382,63 +327,7 @@ app.post("/kamera-ai", (req, res) => {
   app._router.handle(req, res, () => {});
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ API http://localhost:${PORT} adresinde çalışıyor`);
-});
-
-// 3. KAMERA AI
-app.post("/api/kamera-ai", async (req, res) => {
-  try {
-    const { image, apiKey } = req.body;
-    
-    if (!image || !apiKey) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Görsel ve API Key gerekli" 
-      });
-    }
-    
-    console.log("📸 Kamera AI isteği");
-    
-    // BASİT FALLBACK (şimdilik)
-    const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört"];
-    const randomProduct = products[Math.floor(Math.random() * products.length)];
-    
-    res.json({
-      success: true,
-      urunTahmini: randomProduct,
-      tespitEdilen: randomProduct,
-      isFallback: true
-    });
-    
-  } catch (error) {
-    console.error("❌ Kamera AI hatası:", error);
-    
-    res.json({
-      success: true,
-      urunTahmini: "Ürün",
-      tespitEdilen: "Ürün",
-      isError: true
-    });
-  }
-});
-
-// ESKİ ENDPOINT YÖNLENDİRMELERİ
-app.post("/fiyat-cek", (req, res) => {
-  req.url = "/api/fiyat-cek";
-  app._router.handle(req, res, () => {});
-});
-
-app.post("/ai-yorum", (req, res) => {
-  req.url = "/api/ai-yorum";
-  app._router.handle(req, res, () => {});
-});
-
-app.post("/kamera-ai", (req, res) => {
-  req.url = "/api/kamera-ai";
-  app._router.handle(req, res, () => {});
-});
-
+// APP.LISTEN (SADECE 1 TANE - EN SON)
 app.listen(PORT, () => {
   console.log(`✅ API http://localhost:${PORT} adresinde çalışıyor`);
 });
