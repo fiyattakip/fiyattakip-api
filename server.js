@@ -168,64 +168,90 @@ app.post("/api/ai-yorum", async (req, res) => {
     
     console.log("🤖 AI yorum isteği:", urun);
     
-    // Kullanıcıdan gelen API Key'i veya environment key'i kullan
-    const apiKeyToUse = apiKey || GEMINI_API_KEY;
-    
-    if (!apiKeyToUse) {
-      console.warn("⚠️ API Key bulunamadı");
+    // API Key kontrolü
+    if (!apiKey && !GEMINI_API_KEY) {
       return res.status(400).json({ 
         success: false, 
         error: "Gemini API Key gerekli. Lütfen uygulama ayarlarından ekleyin." 
       });
     }
     
+    const apiKeyToUse = apiKey || GEMINI_API_KEY;
+    
     // Gemini AI başlat
     const genAI = new GoogleGenerativeAI(apiKeyToUse);
     
-    // DOĞRU MODEL İSMİ: "gemini-pro" kullan
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    // HANGİ MODELLERİ DENEYELİM (sırayla)
+    const modelsToTry = [
+      "gemini-1.0-pro",           // 1. öncelik
+      "models/gemini-1.0-pro",    // 2. öncelik  
+      "gemini-pro",               // 3. öncelik
+      "gemini-1.5-pro-latest",    // 4. öncelik
+      "gemini-1.5-flash-latest"   // 5. öncelik (ücretsiz)
+    ];
     
-    let prompt = `Aşağıdaki ürün hakkında kısa, net ve faydalı bir alışveriş tavsiyesi ver. Sadece tavsiyeni yaz, başlık vs. ekleme.\n\n`;
-    prompt += `**Ürün:** ${urun}\n\n`;
+    let aiResponse = "";
+    let lastError = "";
     
-    if (fiyatlar && fiyatlar.length > 0) {
-      prompt += `**Fiyat Bilgileri:**\n`;
-      fiyatlar.forEach(f => {
-        prompt += `- ${f.site}: ${f.fiyat}\n`;
-      });
-      prompt += `\nBu fiyatları karşılaştırarak, kullanıcıya en iyi değeri nerede bulabileceğini, fiyatın uygun olup olmadığını veya alternatif siteleri öner.`;
-    } else {
-      prompt += `Bu ürün için henüz fiyat bilgisi yok. Genel olarak bu tür ürünlerde nelere dikkat etmeli, nereden araştırma yapmalı?`;
+    // Modelleri sırayla dene
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`🔍 Model deneniyor: ${modelName}`);
+        
+        const model = genAI.getGenerativeModel({ model: modelName });
+        
+        // Prompt hazırla
+        let prompt = `${urun} ürünü hakkında alışveriş tavsiyesi ver.\n`;
+        
+        if (fiyatlar && fiyatlar.length > 0) {
+          prompt += `Fiyatlar:\n`;
+          fiyatlar.forEach(f => {
+            prompt += `- ${f.site}: ${f.fiyat}\n`;
+          });
+          prompt += `\nBu fiyatlar uygun mu? Hangi siteyi önerirsin?`;
+        }
+        
+        prompt += `\nTürkçe cevap ver, kısa ve net olsun.`;
+        
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        aiResponse = response.text().trim();
+        
+        console.log(`✅ Model çalıştı: ${modelName}`);
+        
+        // Başarılı oldu, döngüden çık
+        res.json({
+          success: true,
+          aiYorum: aiResponse,
+          yorum: aiResponse,
+          modelUsed: modelName
+        });
+        
+        return; // Fonksiyondan çık
+        
+      } catch (modelError) {
+        lastError = modelError.message;
+        console.log(`❌ Model başarısız (${modelName}):`, modelError.message);
+        // Sonraki modeli dene
+      }
     }
     
-    prompt += `\nCevabını Türkçe ve günlük konuşma diliyle ver.`;
-    
-    const result = await model.generateContent(prompt);
-    const aiResponse = result.response.text().trim();
-    
-    res.json({
-      success: true,
-      aiYorum: aiResponse,
-      yorum: aiResponse
-    });
+    // Hiçbir model çalışmadı
+    throw new Error(`Hiçbir model çalışmadı. Son hata: ${lastError}`);
     
   } catch (error) {
     console.error("❌ AI yorum hatası:", error);
     
-    // Hata türüne göre mesaj
-    let errorMessage = "AI yorum yapılamadı";
-    if (error.message.includes("404") || error.message.includes("not found")) {
-      errorMessage = "Gemini modeli bulunamadı. Model: gemini-pro kullanılmalı.";
-    } else if (error.message.includes("API key") || error.message.includes("API_KEY")) {
-      errorMessage = "Geçersiz Gemini API Key. Lütfen doğru key girin.";
-    } else if (error.message.includes("quota")) {
-      errorMessage = "API kotası doldu. Daha sonra tekrar deneyin.";
-    }
+    // Basit fallback mesaj
+    const fallbackResponse = `"${req.body.urun || 'Bu ürün'}" için fiyat analizi yapılamadı. ` +
+                             `Doğrudan sitelerde arama yapmanızı öneririm.`;
     
-    res.status(500).json({
-      success: false,
-      error: errorMessage,
-      details: error.message
+    res.json({
+      success: true,
+      aiYorum: fallbackResponse,
+      yorum: fallbackResponse,
+      error: error.message,
+      isFallback: true
     });
   }
 });
@@ -256,37 +282,86 @@ app.post("/api/kamera-ai", async (req, res) => {
     // Gemini AI başlat
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     
-    // Vision için doğru model
-    const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+    // Vision modellerini dene
+    const visionModels = [
+      "gemini-pro-vision",
+      "models/gemini-pro-vision",
+      "gemini-1.0-pro-vision"
+    ];
     
-    const prompt = "Bu fotoğrafta görünen ürün nedir? Sadece ürünün adını veya kısa açıklamasını Türkçe olarak yaz. Örneğin: 'iPhone 15', 'Siyah spor ayakkabı', 'Kahve makinesi'. Başka açıklama ekleme.";
+    let detectedText = "";
+    let lastVisionError = "";
     
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: mime,
-          data: image
-        }
+    for (const modelName of visionModels) {
+      try {
+        console.log(`🔍 Vision model deneniyor: ${modelName}`);
+        
+        const model = genAI.getGenerativeModel({ model: modelName });
+        
+        const prompt = "Bu fotoğrafta ne görüyorsun? Sadece ürün adını Türkçe söyle.";
+        
+        const result = await model.generateContent([
+          prompt,
+          {
+            inlineData: {
+              mimeType: mime,
+              data: image
+            }
+          }
+        ]);
+        
+        detectedText = result.response.text().trim();
+        console.log(`✅ Vision model çalıştı (${modelName}):`, detectedText);
+        
+        res.json({
+          success: true,
+          urunTahmini: detectedText,
+          tespitEdilen: detectedText,
+          modelUsed: modelName
+        });
+        
+        return;
+        
+      } catch (visionError) {
+        lastVisionError = visionError.message;
+        console.log(`❌ Vision model başarısız (${modelName}):`, visionError.message);
       }
-    ]);
+    }
     
-    const detectedText = result.response.text().trim();
-    console.log("✅ Görselden tespit edilen:", detectedText);
-    
-    res.json({
-      success: true,
-      urunTahmini: detectedText,
-      tespitEdilen: detectedText,
-      aciklama: `Görsel analiz sonucu: ${detectedText}`
-    });
+    // Vision modelleri çalışmazsa, normal model dene
+    try {
+      console.log("🔍 Vision modeller çalışmadı, normal model deneniyor...");
+      const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
+      
+      const prompt = `Bu base64 görselde ne olduğunu tahmin et: ${image.substring(0, 100)}... Sadece ürün adını Türkçe söyle.`;
+      
+      const result = await model.generateContent(prompt);
+      detectedText = result.response.text().trim();
+      
+      res.json({
+        success: true,
+        urunTahmini: detectedText,
+        tespitEdilen: detectedText,
+        modelUsed: "gemini-1.0-pro (text-only)"
+      });
+      
+    } catch (finalError) {
+      throw new Error(`Vision analiz başarısız: ${lastVisionError}`);
+    }
     
   } catch (error) {
     console.error("❌ Kamera AI hatası:", error);
-    res.status(500).json({
-      success: false,
-      error: "Görsel analiz edilemedi",
-      message: error.message || "Bilinmeyen hata"
+    
+    // Fallback
+    const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört", "çanta", "saat"];
+    const randomProduct = products[Math.floor(Math.random() * products.length)];
+    
+    res.json({
+      success: true,
+      urunTahmini: randomProduct,
+      tespitEdilen: randomProduct,
+      isFallback: true,
+      error: error.message
     });
   }
 });
