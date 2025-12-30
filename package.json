@@ -1,6 +1,7 @@
 {
   "name": "fiyattakip-api",
-  "version": "2.2.0",
+  "version": "2.0.1",
+  "description": "FiyatTakip Backend API",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
@@ -10,10 +11,11 @@
     "node": "20.x"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.19.2",
-    "axios": "^1.6.8",
-    "cheerio": "^1.0.0-rc.12"
-    "@google/generative-ai": "^0.21.0"
+    "cors": "^2.8.5",
+    "axios": "^1.7.7",
+    "cheerio": "^1.0.0",
+    "@google/generative-ai": "^0.13.0",
+    "dotenv": "^16.4.5"
   }
 }
