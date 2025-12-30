@@ -20,37 +20,6 @@ try {
   console.log('❌ Gemini AI başlatılamadı:', error.message);
 }
 
-// ==================== YARDIMCI (AI fallback) ====================
-function buildHeuristicComment({ urunAdi, prices, ozellikler, aciklama }) {
-  const name = (urunAdi || '').trim() || 'Bu ürün';
-  const hasPrice = Array.isArray(prices) && prices.length > 0;
-  const featureText =
-    (typeof ozellikler === 'string' && ozellikler.trim()) ? ozellikler.trim() :
-    (Array.isArray(ozellikler) ? ozellikler.filter(Boolean).slice(0, 8).join(', ') : '');
-
-  if (!hasPrice) {
-    // Fiyat yoksa: alınır/alınmaz yerine "kontrol listesi"
-    const bits = [];
-    bits.push(`${name} için şu an fiyat verisi bulunamadı; bu yüzden “en ucuz” yorumu yapamıyorum.`);
-    if (featureText) bits.push(`Öne çıkanlar: ${featureText}.`);
-    bits.push(`Satın almadan önce satıcı puanı/yorumları, garanti (Türkiye garantili mi), iade koşulları ve teknik uyumu kontrol et.`);
-    return bits.join(' ');
-  }
-
-  const enUcuz = prices.reduce((a,b)=> a.fiyat<b.fiyat ? a : b);
-  const enPahali = prices.reduce((a,b)=> a.fiyat>b.fiyat ? a : b);
-  const aralik = enPahali.fiyat - enUcuz.fiyat;
-  const pct = enPahali.fiyat>0 ? Math.round((aralik/enPahali.fiyat)*100) : null;
-
-  const bits = [];
-  bits.push(`${name} için ${prices.length} siteden fiyat geldi. En düşük: ${enUcuz.fiyat.toFixed(0)} TL (${enUcuz.site||'site'}).`);
-  if (pct !== null && pct > 0) bits.push(`Fiyat aralığı yaklaşık %${pct} (en yüksek ${enPahali.fiyat.toFixed(0)} TL).`);
-  if (featureText) bits.push(`Kritik kontrol: ${featureText}.`);
-  bits.push(`Alırken satıcı/garanti/iade ve ürün varyantını (renk, depolama, model yılı) doğrula.`);
-  return bits.join(' ');
-}
-
-
 // ==================== ÖNBELLEK ====================
 const cache = {
   prices: new Map(),
@@ -241,108 +210,87 @@ app.post('/api/fiyat-cek', async (req, res) => {
 // 2. GEMINI AI YORUM
 app.post('/api/ai-yorum', async (req, res) => {
   try {
-    const { urun, fiyatlar, ozellikler, aciklama } = req.body || {};
-
-    // Basit doğrulama
-    const urunAdi = (typeof urun === 'string' ? urun : (urun?.ad || urun?.title || urun?.name || '')).toString().trim();
-    const pricesRaw = Array.isArray(fiyatlar) ? fiyatlar : [];
-    const prices = pricesRaw
-      .map(p => ({
-        site: (p.site || p.siteName || p.source || '').toString(),
-        fiyat: typeof p.fiyat === 'number' ? p.fiyat : (typeof p.price === 'number' ? p.price : Number(String(p.fiyat ?? p.price ?? '').replace(/[^\d.,]/g,'').replace('.','').replace(',','.'))),
-        link: p.link || p.url || ''
-      }))
-      .filter(p => Number.isFinite(p.fiyat) && p.fiyat > 0);
-
-    const enUcuz = prices.length ? prices.reduce((a,b)=> a.fiyat<b.fiyat ? a : b) : null;
-    const enPahali = prices.length ? prices.reduce((a,b)=> a.fiyat>b.fiyat ? a : b) : null;
-    const ortalama = prices.length ? (prices.reduce((s,p)=>s+p.fiyat,0) / prices.length) : null;
-    const indirimOrani = (prices.length && enUcuz && enPahali && enPahali.fiyat>0)
-      ? Math.round(((enPahali.fiyat - enUcuz.fiyat) / enPahali.fiyat) * 100)
-      : null;
-
-    // Gemini yoksa bile anlamlı dönüş verelim
+    const { urun, fiyatlar } = req.body;
+    
     if (!geminiAI) {
-      const fallback = buildHeuristicComment({ urunAdi, prices, ozellikler, aciklama });
       return res.json({
         success: true,
-        yorum: fallback,
-        aiYorum: fallback,
+        yorum: "🤖 AI şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
+        aiYorum: "Gemini AI API anahtarı gerekiyor.",
         detay: {
-          enUcuzFiyat: enUcuz ? `${enUcuz.fiyat.toFixed(2)} TL` : "N/A",
-          enPahaliFiyat: enPahali ? `${enPahali.fiyat.toFixed(2)} TL` : "N/A",
-          ortalamaFiyat: ortalama ? `${ortalama.toFixed(2)} TL` : "N/A",
-          indirimOrani: indirimOrani !== null ? `%${indirimOrani}` : "N/A",
-          siteSayisi: pricesRaw.length
+          enUcuzFiyat: "N/A",
+          enPahaliFiyat: "N/A",
+          ortalamaFiyat: "N/A",
+          indirimOrani: "N/A",
+          siteSayisi: fiyatlar?.length || 0
         }
       });
     }
-
-    const featuresText =
-      (typeof ozellikler === 'string' && ozellikler.trim())
-        ? ozellikler.trim()
-        : (Array.isArray(ozellikler) ? ozellikler.filter(Boolean).slice(0,30).join(', ') : '');
-
-    const descText =
-      (typeof aciklama === 'string' && aciklama.trim())
-        ? aciklama.trim().slice(0, 1200)
-        : '';
-
-    const priceLines = prices.length
-      ? prices
-          .slice(0, 20)
-          .map(p => `- ${p.site || 'Site'}: ${p.fiyat.toFixed(2)} TL`)
-          .join('\n')
-      : '(fiyat bulunamadı)';
-
-    // Fiyat yoksa bile ürünün alınabilirliği hakkında kısa öneri
-    const prompt = [
-      `Sen bir alışveriş danışmanısın. Kullanıcıya Türkçe, kısa ve net (3-6 cümle) bir yorum üret.`,
-      `Ürün: ${urunAdi || 'Bilinmiyor'}`,
-      featuresText ? `Özellikler: ${featuresText}` : '',
-      descText ? `Açıklama: ${descText}` : '',
-      `Fiyat Listesi:`,
-      priceLines,
-      '',
-      `Kurallar:`,
-      `- Fiyat yoksa bunu açıkça söyle ve satın almadan önce nelere bakılması gerektiğini belirt (garanti, satıcı, iade, teknik özellik uyumu).`,
-      `- Fiyat varsa en ucuzu ve aralığı kısaca söyle; "en uygunu budur" gibi tek cümlelik genel geçer laflar yerine, bu ürün tipinde kritik 2 kriteri söyle.`,
-      `- Bilmediğin/emin olmadığın teknik iddialar uydurma.`,
-    ].filter(Boolean).join('\n');
-
-    // Daha stabil/ucuz: 1.5-flash
-    const model = geminiAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' });
+    
+    if (!urun) {
+      return res.json({
+        success: false,
+        error: 'Ürün bilgisi gerekli'
+      });
+    }
+    
+    // Gemini AI'ya soru hazırla
+    // "gemini-pro" deprecated olabildigi icin 1.5 Flash kullanilir
+    const model = geminiAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    
+    const fiyatText = fiyatlar?.map(f => `${f.site}: ${f.fiyat}`).join('\n') || 'Fiyat bilgisi yok';
+    
+    const prompt = `
+      Sen bir fiyat analiz uzmanısın. Aşağıdaki ürün için fiyat analizi yap:
+      
+      Ürün: ${urun}
+      
+      Fiyatlar:
+      ${fiyatText}
+      
+      Lütfen kısa ve net bir şekilde:
+      1. En uygun fiyatı belirle
+      2. Ortalama fiyatı hesapla
+      3. Alınabilir mi tavsiyesi ver
+      4. Kısa yorum yap (max 150 karakter)
+      
+      Türkçe ve emojiler kullan.
+    `;
+    
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    const aiText = (response.text && response.text()) ? response.text().trim() : '';
-
-    const finalText = aiText || buildHeuristicComment({ urunAdi, prices, ozellikler, aciklama });
-
+    const aiText = response.text();
+    
+    // Basit analiz
+    const prices = fiyatlar?.map(f => {
+      const price = parseFloat(f.fiyat.replace(/[^\d.,]/g, '').replace(',', '.'));
+      return isNaN(price) ? 0 : price;
+    }).filter(p => p > 0) || [];
+    
+    const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+    const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+    const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
+    
     res.json({
       success: true,
-      yorum: finalText,
-      aiYorum: finalText,
+      urun: urun,
+      aiYorum: aiText,
       detay: {
-        enUcuzFiyat: enUcuz ? `${enUcuz.fiyat.toFixed(2)} TL` : "N/A",
-        enPahaliFiyat: enPahali ? `${enPahali.fiyat.toFixed(2)} TL` : "N/A",
-        ortalamaFiyat: ortalama ? `${ortalama.toFixed(2)} TL` : "N/A",
-        indirimOrani: indirimOrani !== null ? `%${indirimOrani}` : "N/A",
-        siteSayisi: pricesRaw.length
-      }
+        enUcuzFiyat: minPrice > 0 ? `₺${minPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : "N/A",
+        enPahaliFiyat: maxPrice > 0 ? `₺${maxPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : "N/A",
+        ortalamaFiyat: avgPrice > 0 ? `₺${avgPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : "N/A",
+        indirimOrani: minPrice > 0 && maxPrice > 0 ? `%${Math.round(((maxPrice - minPrice) / maxPrice) * 100)}` : "N/A",
+        siteSayisi: prices.length
+      },
+      tarih: new Date().toLocaleString('tr-TR')
     });
-
+    
   } catch (error) {
     console.error('AI hatası:', error);
-    const { urun, fiyatlar, ozellikler, aciklama } = req.body || {};
-    const urunAdi = (typeof urun === 'string' ? urun : (urun?.ad || urun?.title || urun?.name || '')).toString().trim();
-    const pricesRaw = Array.isArray(fiyatlar) ? fiyatlar : [];
-    const fallback = buildHeuristicComment({ urunAdi, prices: [], ozellikler, aciklama });
-
     res.json({
-      success: true, // UI kırılmasın
-      yorum: fallback,
-      aiYorum: fallback,
-      hata: 'AI yorum yapılamadı'
+      success: false,
+      error: 'AI yorum yapılamadı',
+      aiYorum: "📊 Fiyatlar karşılaştırıldı. En uygun seçeneği tercih edin."
     });
   }
 });
