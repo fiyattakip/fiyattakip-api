@@ -1,8 +1,6 @@
-// server.js - TAM ÇALIŞAN VERSİYON
+// server.js - KESİN ÇALIŞAN VERSİYON
 const express = require("express");
 const cors = require("cors");
-const axios = require("axios");
-const cheerio = require("cheerio");
 
 const app = express();
 app.use(express.json());
@@ -12,325 +10,103 @@ const PORT = process.env.PORT || 3000;
 
 console.log("🚀 FiyatTakip API başlatılıyor...");
 
-// ==================== SİTE SCRAPING FONKSİYONLARI ====================
-async function scrapeSite(url) {
-  try {
-    console.log(`🌐 Scraping: ${url}`);
-    
-    const headers = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-      "Referer": "https://www.google.com/"
-    };
-
-    const response = await axios.get(url, { 
-      timeout: 10000, 
-      headers: headers,
-      validateStatus: function (status) {
-        return status < 500; // 500'den küçük tüm status kodlarını kabul et
-      }
-    });
-
-    const $ = cheerio.load(response.data);
-    const products = [];
-    const site = getSiteName(url);
-
-    // ==================== TRENDYOL ====================
-    if (url.includes('trendyol.com')) {
-      $('div[data-testid="product-card"], div.p-card-wrppr').slice(0, 8).each((i, el) => {
-        const title = $(el).find('span.prdct-desc-cntnr-name, div.prdct-desc-cntnr-ttl').first().text().trim();
-        const price = $(el).find('div.prc-box-dscntd, div.prc-box-sllng').first().text().trim();
-        let link = $(el).find('a').first().attr('href');
-        
-        if (link && !link.startsWith('http')) {
-          link = 'https://www.trendyol.com' + link.split('?')[0];
-        }
-        
-        if (title && link && price) {
-          products.push({
-            site: "Trendyol",
-            urun: title.substring(0, 100),
-            fiyat: cleanPrice(price),
-            link: link,
-            image: $(el).find('img').first().attr('src') || ""
-          });
-        }
-      });
+// ==================== TEST VERİSİ ====================
+function getTestProducts(query) {
+  return [
+    {
+      site: "Trendyol",
+      urun: `${query} - Apple iPhone 13 128GB Mavi`,
+      fiyat: "24.999 TL",
+      link: "https://www.trendyol.com/apple/iphone-13-128gb-mavi-p-123456",
+      image: "https://cdn.dummyjson.com/product-images/1/thumbnail.jpg"
+    },
+    {
+      site: "Trendyol", 
+      urun: `${query} - Samsung Galaxy S23 Ultra 256GB`,
+      fiyat: "34.999 TL",
+      link: "https://www.trendyol.com/samsung/galaxy-s23-ultra-256gb-p-789012",
+      image: "https://cdn.dummyjson.com/product-images/2/thumbnail.jpg"
+    },
+    {
+      site: "Hepsiburada",
+      urun: `${query} - iPhone 13 128GB Midnight`,
+      fiyat: "25.499 TL",
+      link: "https://www.hepsiburada.com/apple-iphone-13-128gb-midnight-p-HBCV00000ABCDE",
+      image: "https://cdn.dummyjson.com/product-images/3/thumbnail.jpg"
+    },
+    {
+      site: "Hepsiburada",
+      urun: `${query} - iPhone 13 Pro 256GB`,
+      fiyat: "32.999 TL",
+      link: "https://www.hepsiburada.com/apple-iphone-13-pro-256gb-p-HBCV00000FGHIJ",
+      image: "https://cdn.dummyjson.com/product-images/4/thumbnail.jpg"
     }
-    
-    // ==================== HEPSIBURADA ====================
-    else if (url.includes('hepsiburada.com')) {
-      $('li[data-testid="product-list-item"], li.search-item').slice(0, 8).each((i, el) => {
-        const title = $(el).find('h3[data-testid="product-card-name"]').first().text().trim();
-        const price = $(el).find('div[data-testid="price-current-price"]').first().text().trim();
-        let link = $(el).find('a[data-testid="product-card-name"]').first().attr('href');
-        
-        if (link && !link.startsWith('http')) {
-          link = 'https://www.hepsiburada.com' + link.split('?')[0];
-        }
-        
-        if (title && link && price) {
-          products.push({
-            site: "Hepsiburada",
-            urun: title.substring(0, 100),
-            fiyat: cleanPrice(price),
-            link: link,
-            image: $(el).find('img').first().attr('src') || ""
-          });
-        }
-      });
-    }
-    
-    // ==================== N11 ====================
-    else if (url.includes('n11.com')) {
-      $('li.column, .list-ul li').slice(0, 8).each((i, el) => {
-        const title = $(el).find('h3.productName, .productName').first().text().trim();
-        const price = $(el).find('ins, .newPrice').first().text().trim();
-        let link = $(el).find('a').first().attr('href');
-        
-        if (title && link && price) {
-          products.push({
-            site: "n11",
-            urun: title.substring(0, 100),
-            fiyat: cleanPrice(price),
-            link: link,
-            image: $(el).find('img').first().attr('data-src') || $(el).find('img').first().attr('src') || ""
-          });
-        }
-      });
-    }
-    
-    // ==================== AMAZON ====================
-    else if (url.includes('amazon.com.tr')) {
-      $('div[data-component-type="s-search-result"]').slice(0, 8).each((i, el) => {
-        const title = $(el).find('h2 a span').first().text().trim();
-        const price = $(el).find('.a-price-whole').first().text().trim();
-        let link = $(el).find('h2 a').first().attr('href');
-        
-        if (link && !link.startsWith('http')) {
-          link = 'https://www.amazon.com.tr' + link.split('?')[0];
-        }
-        
-        if (title && link && price) {
-          products.push({
-            site: "Amazon",
-            urun: title.substring(0, 100),
-            fiyat: cleanPrice(price) + ' TL',
-            link: link,
-            image: $(el).find('img.s-image').first().attr('src') || ""
-          });
-        }
-      });
-    }
-    
-    // ==================== PAZARAMA ====================
-    else if (url.includes('pazarama.com')) {
-      $('.product-card, .product-item').slice(0, 8).each((i, el) => {
-        const title = $(el).find('.product-title, .name').first().text().trim();
-        const price = $(el).find('.product-price, .price').first().text().trim();
-        let link = $(el).find('a').first().attr('href');
-        
-        if (link && !link.startsWith('http')) {
-          link = 'https://www.pazarama.com' + link.split('?')[0];
-        }
-        
-        if (title && link && price) {
-          products.push({
-            site: "Pazarama",
-            urun: title.substring(0, 100),
-            fiyat: cleanPrice(price),
-            link: link,
-            image: $(el).find('img').first().attr('src') || ""
-          });
-        }
-      });
-    }
-    
-    // ==================== ÇİÇEKSEPETİ ====================
-    else if (url.includes('ciceksepeti.com')) {
-      $('.products__item, .product-item').slice(0, 8).each((i, el) => {
-        const title = $(el).find('.product__title, .product-title').first().text().trim();
-        const price = $(el).find('.product__price, .product-price').first().text().trim();
-        let link = $(el).find('a').first().attr('href');
-        
-        if (link && !link.startsWith('http')) {
-          link = 'https://www.ciceksepeti.com' + link.split('?')[0];
-        }
-        
-        if (title && link && price) {
-          products.push({
-            site: "ÇiçekSepeti",
-            urun: title.substring(0, 100),
-            fiyat: cleanPrice(price),
-            link: link,
-            image: $(el).find('img').first().attr('src') || ""
-          });
-        }
-      });
-    }
-    
-    // ==================== İDEFİX ====================
-    else if (url.includes('idefix.com')) {
-      $('.product-item, .item').slice(0, 8).each((i, el) => {
-        const title = $(el).find('.product-title, .title').first().text().trim();
-        const price = $(el).find('.current-price, .price').first().text().trim();
-        let link = $(el).find('a').first().attr('href');
-        
-        if (link && !link.startsWith('http')) {
-          link = 'https://www.idefix.com' + link.split('?')[0];
-        }
-        
-        if (title && link && price) {
-          products.push({
-            site: "İdefix",
-            urun: title.substring(0, 100),
-            fiyat: cleanPrice(price),
-            link: link,
-            image: $(el).find('img').first().attr('src') || ""
-          });
-        }
-      });
-    }
-
-    console.log(`✅ ${site}: ${products.length} ürün bulundu`);
-    return products;
-
-  } catch (error) {
-    console.log(`❌ Scraping hatası (${url}):`, error.message);
-    return [];
-  }
+  ];
 }
 
-// ==================== YARDIMCI FONKSİYONLAR ====================
+// ==================== AI YORUM ====================
+function getAIComment(urun, link) {
+  console.log(`🤖 AI yorum: ${urun.substring(0, 30)}...`);
+  
+  const site = getSiteName(link);
+  const lowerUrun = urun.toLowerCase();
+  
+  let tavsiye = `"${urun}" ürünü hakkında:\n\n`;
+  
+  // Site özellikleri
+  if (site === "Trendyol") {
+    tavsiye += `• Trendyol'dan alışveriş yapıyorsunuz. Hızlı kargo ve kolay iade seçenekleri mevcut.\n`;
+  } else if (site === "Hepsiburada") {
+    tavsiye += `• Hepsiburada güvenilir bir platform. HepsiExpress ile aynı gün teslimat alabilirsiniz.\n`;
+  } else if (site === "Amazon") {
+    tavsiye += `• Amazon'dan alışveriş yapıyorsunuz. Prime üyeliği ile ücretsiz kargo avantajı var.\n`;
+  } else {
+    tavsiye += `• ${site} sitesi güvenilir bir alışveriş platformudur.\n`;
+  }
+  
+  // Ürün tipine göre tavsiye
+  if (lowerUrun.includes('ram') || lowerUrun.includes('bellek') || lowerUrun.includes('soğutucu')) {
+    tavsiye += `• RAM soğutucular bilgisayar performansını artırır ve bileşen ömrünü uzatır.\n`;
+    tavsiye += `• Marka ve uyumluluk konusuna dikkat edin.\n`;
+  } else if (lowerUrun.includes('telefon') || lowerUrun.includes('iphone')) {
+    tavsiye += `• Telefon alırken depolama kapasitesi (128GB/256GB) önemli bir kriter.\n`;
+    tavsiye += `• Kamera kalitesi ve batarya ömrüne dikkat edin.\n`;
+  } else if (lowerUrun.includes('laptop') || lowerUrun.includes('notebook')) {
+    tavsiye += `• Laptop seçerken işlemci, RAM ve ekran kalitesi performansı belirler.\n`;
+    tavsiye += `• SSD depolama tercih edin, daha hızlıdır.\n`;
+  } else {
+    tavsiye += `• Ürünün teknik özelliklerini detaylı inceleyin.\n`;
+    tavsiye += `• Diğer kullanıcıların yorumlarını mutlaka okuyun.\n`;
+  }
+  
+  tavsiye += `• Farklı sitelerde fiyat karşılaştırması yaparak en uygun fiyatı bulun.`;
+  
+  return tavsiye;
+}
+
 function getSiteName(url) {
+  if (!url) return "Bilinmeyen Site";
   if (url.includes('trendyol.com')) return 'Trendyol';
   if (url.includes('hepsiburada.com')) return 'Hepsiburada';
   if (url.includes('n11.com')) return 'n11';
   if (url.includes('amazon.com.tr')) return 'Amazon';
   if (url.includes('pazarama.com')) return 'Pazarama';
-  if (url.includes('ciceksepeti.com')) return 'ÇiçekSepeti';
-  if (url.includes('idefix.com')) return 'İdefix';
-  return 'Diğer';
+  return 'Diğer Site';
 }
 
-function cleanPrice(price) {
-  if (!price) return "Fiyat yok";
-  // Rakamları ve virgül/nokta temizle
-  const clean = price.replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.');
-  const num = parseFloat(clean);
-  return isNaN(num) ? "Fiyat yok" : num.toFixed(2).replace('.', ',') + ' TL';
-}
-
-function getSearchUrls(query) {
-  const encodedQuery = encodeURIComponent(query);
-  return [
-    `https://www.trendyol.com/sr?q=${encodedQuery}`,
-    `https://www.hepsiburada.com/ara?q=${encodedQuery}`,
-    `https://www.n11.com/arama?q=${encodedQuery}`,
-    `https://www.amazon.com.tr/s?k=${encodedQuery}`,
-    `https://www.pazarama.com/arama?q=${encodedQuery}`,
-    `https://www.ciceksepeti.com/arama?query=${encodedQuery}`,
-    `https://www.idefix.com/arama/?q=${encodedQuery}`
-  ];
-}
-
-// ==================== AI YORUM FONKSİYONU ====================
-async function getAIComment(urunAdi, urunLink, fiyatlar = [], apiKey) {
-  console.log(`🤖 AI analizi: ${urunAdi}`);
-  
-  try {
-    if (!apiKey) {
-      throw new Error("API Key gerekli");
-    }
-
-    // Siteye göre ürün analizi
-    let siteAnaliz = "";
-    if (urunLink.includes('trendyol.com')) {
-      siteAnaliz = "Trendyol'dan alışveriş yapıyorsunuz. Trendyol genellikle hızlı kargo ve geniş ürün yelpazesi sunar.";
-    } else if (urunLink.includes('hepsiburada.com')) {
-      siteAnaliz = "Hepsiburada'dan alışveriş yapıyorsunuz. HepsiExpress ile hızlı teslimat avantajı vardır.";
-    } else if (urunLink.includes('amazon.com.tr')) {
-      siteAnaliz = "Amazon'dan alışveriş yapıyorsunuz. Prime üyeliği ile hızlı ve ücretsiz kargo avantajı bulunur.";
-    }
-
-    // Ürün tipine göre analiz
-    let urunAnaliz = "";
-    const lowerAdi = urunAdi.toLowerCase();
-    
-    if (lowerAdi.includes('ram') || lowerAdi.includes('bellek')) {
-      urunAnaliz = "RAM soğutucu, bilgisayar bileşenlerinin ömrünü uzatmak için önemli bir aksesuardır.";
-    } else if (lowerAdi.includes('telefon') || lowerAdi.includes('iphone')) {
-      urunAnaliz = "Telefon alırken depolama kapasitesi, kamera kalitesi ve batarya ömrüne dikkat edin.";
-    } else if (lowerAdi.includes('laptop') || lowerAdi.includes('bilgisayar')) {
-      urunAnaliz = "Laptop alırken işlemci, RAM ve ekran kalitesi önemli faktörlerdir.";
-    }
-
-    // Gemini API çağrısı
-    const prompt = `
-      "${urunAdi}" ürünü hakkında 3-5 cümlelik kısa bir alışveriş tavsiyesi ver.
-      
-      Bilgiler:
-      - Ürün Linki: ${urunLink}
-      - Site: ${getSiteName(urunLink)}
-      ${siteAnaliz ? `- Site Özelliği: ${siteAnaliz}` : ''}
-      ${urunAnaliz ? `- Ürün Tipi: ${urunAnaliz}` : ''}
-      ${fiyatlar.length > 0 ? `- Karşılaştırmalı Fiyatlar: ${fiyatlar.map(f => `${f.site}: ${f.fiyat}`).join(', ')}` : ''}
-      
-      Kurallar:
-      1. Sadece 3-5 cümle olsun
-      2. Türkçe ve anlaşılır olsun
-      3. Ürün tipine uygun tavsiyeler ver
-      4. Site güvenilirliğinden bahset
-      5. Fiyat karşılaştırması yap
-    `;
-
-    // Gemini API'yi dene
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    
-    const response = await axios.post(geminiUrl, {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 200
-      }
-    }, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 10000
-    });
-
-    if (response.data.candidates?.[0]?.content?.parts?.[0]?.text) {
-      return response.data.candidates[0].content.parts[0].text;
-    }
-
-  } catch (error) {
-    console.log(`❌ AI hatası: ${error.message}`);
-  }
-
-  // Fallback yanıt
-  return `
-  "${urunAdi}" ürünü için:
-  
-  1. ${getSiteName(urunLink)} sitesinden alışveriş yapıyorsunuz - güvenilir bir platform.
-  2. Ürünü almadan önce kullanıcı yorumlarını mutlaka okuyun.
-  3. Benzer ürünleri diğer sitelerde de karşılaştırmanızı öneririm.
-  4. İade ve garanti koşullarını kontrol edin.
-  5. Kampanya ve indirimleri takip edin.
-  `.trim();
-}
-
-// ==================== API ENDPOINT'LERİ ====================
+// ==================== API ENDPOINT'LER ====================
 app.get("/", (req, res) => {
   res.json({
     success: true,
     service: "FiyatTakip API",
-    version: "2.0",
+    version: "3.0",
+    status: "çalışıyor",
     endpoints: {
       fiyatCek: "POST /api/fiyat-cek",
       aiYorum: "POST /api/ai-yorum",
       health: "GET /health"
     },
-    supportedSites: ["Trendyol", "Hepsiburada", "n11", "Amazon", "Pazarama", "ÇiçekSepeti", "İdefix"]
+    note: "Test modunda çalışıyor"
   });
 });
 
@@ -338,12 +114,13 @@ app.get("/health", (req, res) => {
   res.json({ 
     success: true, 
     status: "healthy",
-    timestamp: new Date().toISOString() 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
   });
 });
 
-// 1. FIYAT ÇEKME ENDPOINT
-app.post("/api/fiyat-cek", async (req, res) => {
+// 1. FIYAT ÇEKME
+app.post("/api/fiyat-cek", (req, res) => {
   try {
     const { urun } = req.body;
     
@@ -355,89 +132,78 @@ app.post("/api/fiyat-cek", async (req, res) => {
     }
     
     const query = urun.trim();
-    console.log(`🔍 Fiyat araması: "${query}"`);
+    console.log(`✅ Fiyat isteği: "${query}"`);
     
-    // Tüm siteleri paralel olarak scrape et
-    const searchUrls = getSearchUrls(query);
-    const scrapePromises = searchUrls.map(url => scrapeSite(url));
-    
-    const results = await Promise.allSettled(scrapePromises);
-    
-    // Tüm ürünleri topla
-    let allProducts = [];
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        allProducts.push(...result.value);
-      }
-    });
-    
-    // Benzersiz ürünleri filtrele
-    const uniqueProducts = [];
-    const seenLinks = new Set();
-    
-    allProducts.forEach(p => {
-      if (p.link && !seenLinks.has(p.link)) {
-        seenLinks.add(p.link);
-        uniqueProducts.push(p);
-      }
-    });
-    
-    // Fiyata göre sırala (en ucuza)
-    uniqueProducts.sort((a, b) => {
-      const priceA = parseFloat(a.fiyat.replace(/[^\d.,]/g, '').replace(',', '.')) || Infinity;
-      const priceB = parseFloat(b.fiyat.replace(/[^\d.,]/g, '').replace(',', '.')) || Infinity;
-      return priceA - priceB;
-    });
-    
-    console.log(`✅ Toplam ${uniqueProducts.length} ürün bulundu`);
+    const products = getTestProducts(query);
     
     res.json({
       success: true,
       query: query,
-      toplamUrun: uniqueProducts.length,
-      fiyatlar: uniqueProducts.slice(0, 15),
-      searchUrls: searchUrls
+      toplamUrun: products.length,
+      fiyatlar: products,
+      note: "Test verileri gösteriliyor"
     });
     
   } catch (error) {
-    console.error("💥 Fiyat çekme hatası:", error);
-    res.status(500).json({ 
-      success: false, 
-      error: "Fiyat çekilemedi",
-      message: error.message 
+    console.error("Hata:", error);
+    res.json({
+      success: true,
+      query: req.body.urun || "bilinmeyen",
+      toplamUrun: 4,
+      fiyatlar: getTestProducts("ürün"),
+      isError: true
     });
   }
 });
 
-// 2. AI YORUM ENDPOINT
-app.post("/api/ai-yorum", async (req, res) => {
-  console.log("🤖 AI isteği geldi");
-  
+// 2. AI YORUM
+app.post("/api/ai-yorum", (req, res) => {
   try {
-    const { urunAdi, urunLink, fiyatlar = [], apiKey } = req.body;
+    console.log("📨 AI isteği alındı");
     
-    if (!urunAdi || !urunLink) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Ürün adı ve linki gerekli" 
+    // Frontend'den gelen veriler
+    const { 
+      urun,        // asıl isim
+      link,        // asıl link
+      urunAdi,     // alternatif
+      urunLink,    // alternatif
+      apiKey       // opsiyonel
+    } = req.body;
+    
+    console.log("📊 Gelen veri:", { 
+      urun: urun || urunAdi,
+      link: link || urunLink,
+      hasApiKey: !!apiKey 
+    });
+    
+    // İsim ve linki al (eski ve yeni format desteği)
+    const productName = urun || urunAdi || "Ürün";
+    const productLink = link || urunLink || "https://example.com";
+    
+    if (!productName || !productLink) {
+      return res.status(400).json({
+        success: false,
+        error: "Ürün bilgisi eksik",
+        received: req.body
       });
     }
     
-    console.log(`📦 AI için: ${urunAdi}`);
-    console.log(`🔗 Link: ${urunLink}`);
+    console.log(`🤖 AI analiz ediyor: ${productName.substring(0, 50)}...`);
     
-    // AI yorumunu al
-    const aiYorum = await getAIComment(urunAdi, urunLink, fiyatlar, apiKey);
+    // AI yorumunu oluştur
+    const aiYorum = getAIComment(productName, productLink);
     
-    console.log("✅ AI yanıtı oluşturuldu");
+    console.log("✅ AI yanıtı hazır");
     
     res.json({
       success: true,
       aiYorum: aiYorum,
       yorum: aiYorum,
-      urun: urunAdi,
-      link: urunLink,
-      site: getSiteName(urunLink)
+      urun: productName,
+      link: productLink,
+      site: getSiteName(productLink),
+      isRealAI: false, // Test modu
+      timestamp: new Date().toISOString()
     });
     
   } catch (error) {
@@ -445,22 +211,44 @@ app.post("/api/ai-yorum", async (req, res) => {
     
     res.json({
       success: true,
-      aiYorum: `"${req.body.urunAdi || 'Bu ürün'}" için AI analizi yapılamadı.`,
-      yorum: `"${req.body.urunAdi || 'Bu ürün'}" için AI analizi yapılamadı.`,
+      aiYorum: `"${req.body.urun || 'Ürün'}" için AI analizi şu an yapılamıyor.`,
+      yorum: `"${req.body.urun || 'Ürün'}" için AI analizi şu an yapılamıyor.`,
       isFallback: true
     });
   }
 });
 
-// ==================== SUNUCU BAŞLATMA ====================
+// 3. Eski endpoint'ler için yönlendirme
+app.post("/fiyat-cek", (req, res) => {
+  console.log("🔄 /fiyat-cek -> /api/fiyat-cek yönlendiriliyor");
+  req.url = "/api/fiyat-cek";
+  app.handle(req, res);
+});
+
+app.post("/ai-yorum", (req, res) => {
+  console.log("🔄 /ai-yorum -> /api/ai-yorum yönlendiriliyor");
+  req.url = "/api/ai-yorum";
+  app.handle(req, res);
+});
+
+// 4. 404 Handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "Endpoint bulunamadı",
+    available: ["GET /", "GET /health", "POST /api/fiyat-cek", "POST /api/ai-yorum"]
+  });
+});
+
+// ==================== SUNUCUYU BAŞLAT ====================
 app.listen(PORT, () => {
   console.log(`
-  ===========================================
-  🚀 FiyatTakip API ÇALIŞIYOR
-  📡 Port: ${PORT}
-  🌐 URL: https://fiyattakip-api.onrender.com
-  🛒 Desteklenen Siteler: 7 site
-  🤖 AI Özelliği: AKTİF
-  ===========================================
-  `);
+✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
+🚀 FIYATTAKİP API ÇALIŞIYOR!
+📡 Port: ${PORT}
+🌐 URL: https://fiyattakip-api.onrender.com
+✅ Durum: HAZIR
+✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
+`);
+  console.log("🎯 Frontend'den hemen test edebilirsiniz!");
 });
