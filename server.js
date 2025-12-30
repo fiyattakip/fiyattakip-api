@@ -158,7 +158,6 @@ app.post("/api/fiyat-cek", async (req, res) => {
 });
 
 // 2. // server.js - GERÇEK AI ÇALIŞAN KOD
-const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const cheerio = require("cheerio");
