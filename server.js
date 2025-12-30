@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(cors({ origin: true }));
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000; // 3000 yerine 1000 de olabilir
 
 console.log("🚀 FiyatTakip API ÇALIŞIYOR");
 
