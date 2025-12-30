@@ -7,9 +7,10 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "cors": "^2.8.5",
+    "cors": "^2.8.5", 
     "axios": "^1.6.8",
     "cheerio": "^1.0.0-rc.12",
-    "@google/generative-ai": "^0.21.0"
+    "@google/generative-ai": "^0.21.0",  // BU KALSIN
+    "node-fetch": "^2.7.0"               // BUNU EKLE!
   }
 }
