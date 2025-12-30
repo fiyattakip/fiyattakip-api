@@ -1,6 +1,7 @@
-// server.js - KESİN ÇALIŞAN VERSİYON
+// server.js - KESİN ÇALIŞAN PROXY API
 const express = require("express");
 const cors = require("cors");
+const axios = require("axios");
 
 const app = express();
 app.use(express.json());
@@ -8,206 +9,132 @@ app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 
-console.log("🚀 FiyatTakip API başlatılıyor...");
+console.log("🚀 Proxy API başlatılıyor...");
 
-// ==================== TEST VERİSİ ====================
-function getTestProducts(query) {
-  return [
-    {
-      site: "Trendyol",
-      urun: `${query} - Apple iPhone 13 128GB Mavi`,
-      fiyat: "24.999 TL",
-      link: "https://www.trendyol.com/apple/iphone-13-128gb-mavi-p-123456",
-      image: "https://cdn.dummyjson.com/product-images/1/thumbnail.jpg"
-    },
-    {
-      site: "Trendyol", 
-      urun: `${query} - Samsung Galaxy S23 Ultra 256GB`,
-      fiyat: "34.999 TL",
-      link: "https://www.trendyol.com/samsung/galaxy-s23-ultra-256gb-p-789012",
-      image: "https://cdn.dummyjson.com/product-images/2/thumbnail.jpg"
-    },
-    {
-      site: "Hepsiburada",
-      urun: `${query} - iPhone 13 128GB Midnight`,
-      fiyat: "25.499 TL",
-      link: "https://www.hepsiburada.com/apple-iphone-13-128gb-midnight-p-HBCV00000ABCDE",
-      image: "https://cdn.dummyjson.com/product-images/3/thumbnail.jpg"
-    },
-    {
-      site: "Hepsiburada",
-      urun: `${query} - iPhone 13 Pro 256GB`,
-      fiyat: "32.999 TL",
-      link: "https://www.hepsiburada.com/apple-iphone-13-pro-256gb-p-HBCV00000FGHIJ",
-      image: "https://cdn.dummyjson.com/product-images/4/thumbnail.jpg"
-    }
-  ];
-}
-
-// ==================== AI YORUM ====================
-function getAIComment(urun, link) {
-  console.log(`🤖 AI yorum: ${urun.substring(0, 30)}...`);
-  
-  const site = getSiteName(link);
-  const lowerUrun = urun.toLowerCase();
-  
-  let tavsiye = `"${urun}" ürünü hakkında:\n\n`;
-  
-  // Site özellikleri
-  if (site === "Trendyol") {
-    tavsiye += `• Trendyol'dan alışveriş yapıyorsunuz. Hızlı kargo ve kolay iade seçenekleri mevcut.\n`;
-  } else if (site === "Hepsiburada") {
-    tavsiye += `• Hepsiburada güvenilir bir platform. HepsiExpress ile aynı gün teslimat alabilirsiniz.\n`;
-  } else if (site === "Amazon") {
-    tavsiye += `• Amazon'dan alışveriş yapıyorsunuz. Prime üyeliği ile ücretsiz kargo avantajı var.\n`;
-  } else {
-    tavsiye += `• ${site} sitesi güvenilir bir alışveriş platformudur.\n`;
-  }
-  
-  // Ürün tipine göre tavsiye
-  if (lowerUrun.includes('ram') || lowerUrun.includes('bellek') || lowerUrun.includes('soğutucu')) {
-    tavsiye += `• RAM soğutucular bilgisayar performansını artırır ve bileşen ömrünü uzatır.\n`;
-    tavsiye += `• Marka ve uyumluluk konusuna dikkat edin.\n`;
-  } else if (lowerUrun.includes('telefon') || lowerUrun.includes('iphone')) {
-    tavsiye += `• Telefon alırken depolama kapasitesi (128GB/256GB) önemli bir kriter.\n`;
-    tavsiye += `• Kamera kalitesi ve batarya ömrüne dikkat edin.\n`;
-  } else if (lowerUrun.includes('laptop') || lowerUrun.includes('notebook')) {
-    tavsiye += `• Laptop seçerken işlemci, RAM ve ekran kalitesi performansı belirler.\n`;
-    tavsiye += `• SSD depolama tercih edin, daha hızlıdır.\n`;
-  } else {
-    tavsiye += `• Ürünün teknik özelliklerini detaylı inceleyin.\n`;
-    tavsiye += `• Diğer kullanıcıların yorumlarını mutlaka okuyun.\n`;
-  }
-  
-  tavsiye += `• Farklı sitelerde fiyat karşılaştırması yaparak en uygun fiyatı bulun.`;
-  
-  return tavsiye;
-}
-
-function getSiteName(url) {
-  if (!url) return "Bilinmeyen Site";
-  if (url.includes('trendyol.com')) return 'Trendyol';
-  if (url.includes('hepsiburada.com')) return 'Hepsiburada';
-  if (url.includes('n11.com')) return 'n11';
-  if (url.includes('amazon.com.tr')) return 'Amazon';
-  if (url.includes('pazarama.com')) return 'Pazarama';
-  return 'Diğer Site';
-}
-
-// ==================== API ENDPOINT'LER ====================
+// 1. HEALTH CHECK
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    service: "FiyatTakip API",
-    version: "3.0",
+    service: "FiyatTakip Proxy API",
+    version: "1.0",
     status: "çalışıyor",
-    endpoints: {
-      fiyatCek: "POST /api/fiyat-cek",
-      aiYorum: "POST /api/ai-yorum",
-      health: "GET /health"
-    },
-    note: "Test modunda çalışıyor"
+    note: "Bu API sadece proxy görevi görür"
   });
 });
 
 app.get("/health", (req, res) => {
-  res.json({ 
-    success: true, 
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
+  res.json({ success: true, status: "healthy" });
 });
 
-// 1. FIYAT ÇEKME
-app.post("/api/fiyat-cek", (req, res) => {
+// 2. GEMINI PROXY - ANA ENDPOINT
+app.post("/api/gemini-proxy", async (req, res) => {
   try {
-    const { urun } = req.body;
+    const { prompt, apiKey } = req.body;
     
-    if (!urun || urun.trim().length < 2) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Ürün adı gerekli (en az 2 karakter)" 
+    if (!prompt || !apiKey) {
+      return res.status(400).json({
+        success: false,
+        error: "Prompt ve API Key gerekli"
       });
     }
     
-    const query = urun.trim();
-    console.log(`✅ Fiyat isteği: "${query}"`);
+    console.log("🤖 Gemini proxy isteği alındı");
     
-    const products = getTestProducts(query);
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    const response = await axios.post(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 300
+      }
+    }, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000
+    });
+    
+    const aiResponse = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "Yanıt alınamadı";
     
     res.json({
       success: true,
-      query: query,
-      toplamUrun: products.length,
-      fiyatlar: products,
-      note: "Test verileri gösteriliyor"
+      response: aiResponse
     });
     
   } catch (error) {
-    console.error("Hata:", error);
+    console.error("❌ Proxy hatası:", error.message);
+    
     res.json({
-      success: true,
-      query: req.body.urun || "bilinmeyen",
-      toplamUrun: 4,
-      fiyatlar: getTestProducts("ürün"),
-      isError: true
+      success: false,
+      error: "AI servisi geçici olarak kullanılamıyor",
+      message: error.message
     });
   }
 });
 
-// 2. AI YORUM
-app.post("/api/ai-yorum", (req, res) => {
+// 3. ESKİ UYUMLULUK
+app.post("/api/ai-yorum", async (req, res) => {
   try {
-    console.log("📨 AI isteği alındı");
+    const { urun, link, apiKey } = req.body;
     
-    // Frontend'den gelen veriler
-    const { 
-      urun,        // asıl isim
-      link,        // asıl link
-      urunAdi,     // alternatif
-      urunLink,    // alternatif
-      apiKey       // opsiyonel
-    } = req.body;
-    
-    console.log("📊 Gelen veri:", { 
-      urun: urun || urunAdi,
-      link: link || urunLink,
-      hasApiKey: !!apiKey 
-    });
-    
-    // İsim ve linki al (eski ve yeni format desteği)
-    const productName = urun || urunAdi || "Ürün";
-    const productLink = link || urunLink || "https://example.com";
-    
-    if (!productName || !productLink) {
+    if (!urun || !link) {
       return res.status(400).json({
         success: false,
-        error: "Ürün bilgisi eksik",
-        received: req.body
+        error: "Ürün adı ve linki gerekli"
       });
     }
     
-    console.log(`🤖 AI analiz ediyor: ${productName.substring(0, 50)}...`);
+    const prompt = `
+    "${urun}" ürünü hakkında 3-5 cümlelik alışveriş tavsiyesi ver.
     
-    // AI yorumunu oluştur
-    const aiYorum = getAIComment(productName, productLink);
+    BİLGİLER:
+    - Ürün: ${urun}
+    - Link: ${link}
+    - Site: ${getSiteName(link)}
     
-    console.log("✅ AI yanıtı hazır");
+    KURALLAR:
+    1. Sadece 3-5 cümle olsun
+    2. Türkçe ve net olsun
+    3. Ürün tipine uygun tavsiyeler ver
+    4. Site güvenilirliğinden bahset
+    5. Fiyat karşılaştırması yapmayı öner
+    
+    ÖRNEK: "Bu ürün için tavsiyelerim: 1) Site güvenilir, 2) Ürün kaliteli, 3) Fiyat karşılaştırın"
+    `;
+    
+    if (!apiKey) {
+      // API key yoksa basit fallback
+      return res.json({
+        success: true,
+        aiYorum: `"${urun}" için:\n\n• ${getSiteName(link)} güvenilir.\n• Ürün özelliklerini inceleyin.\n• Kullanıcı yorumlarını okuyun.`,
+        yorum: `"${urun}" için:\n\n• ${getSiteName(link)} güvenilir.\n• Ürün özelliklerini inceleyin.\n• Kullanıcı yorumlarını okuyun.`,
+        isFallback: true
+      });
+    }
+    
+    // Gemini'ye yönlendir
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    const response = await axios.post(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 200
+      }
+    }, {
+      timeout: 10000
+    });
+    
+    const aiResponse = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "Yanıt alınamadı";
     
     res.json({
       success: true,
-      aiYorum: aiYorum,
-      yorum: aiYorum,
-      urun: productName,
-      link: productLink,
-      site: getSiteName(productLink),
-      isRealAI: false, // Test modu
-      timestamp: new Date().toISOString()
+      aiYorum: aiResponse,
+      yorum: aiResponse,
+      isRealAI: true
     });
     
   } catch (error) {
-    console.error("💥 AI hatası:", error);
+    console.error("AI hatası:", error.message);
     
     res.json({
       success: true,
@@ -218,37 +145,62 @@ app.post("/api/ai-yorum", (req, res) => {
   }
 });
 
-// 3. Eski endpoint'ler için yönlendirme
-app.post("/fiyat-cek", (req, res) => {
-  console.log("🔄 /fiyat-cek -> /api/fiyat-cek yönlendiriliyor");
-  req.url = "/api/fiyat-cek";
-  app.handle(req, res);
-});
-
-app.post("/ai-yorum", (req, res) => {
-  console.log("🔄 /ai-yorum -> /api/ai-yorum yönlendiriliyor");
-  req.url = "/api/ai-yorum";
-  app.handle(req, res);
-});
-
-// 4. 404 Handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: "Endpoint bulunamadı",
-    available: ["GET /", "GET /health", "POST /api/fiyat-cek", "POST /api/ai-yorum"]
+// 4. FİYAT ÇEKME (TEST)
+app.post("/api/fiyat-cek", (req, res) => {
+  const { urun } = req.body;
+  
+  res.json({
+    success: true,
+    query: urun || "test",
+    toplamUrun: 4,
+    fiyatlar: [
+      {
+        site: "Trendyol",
+        urun: `${urun || "Ürün"} - Test 1`,
+        fiyat: "1.299 TL",
+        link: "https://www.trendyol.com/test1"
+      },
+      {
+        site: "Hepsiburada",
+        urun: `${urun || "Ürün"} - Test 2`,
+        fiyat: "1.199 TL",
+        link: "https://www.hepsiburada.com/test2"
+      },
+      {
+        site: "n11",
+        urun: `${urun || "Ürün"} - Test 3`,
+        fiyat: "1.399 TL",
+        link: "https://www.n11.com/test3"
+      },
+      {
+        site: "Amazon",
+        urun: `${urun || "Ürün"} - Test 4`,
+        fiyat: "1.499 TL",
+        link: "https://www.amazon.com.tr/test4"
+      }
+    ]
   });
 });
 
-// ==================== SUNUCUYU BAŞLAT ====================
+// YARDIMCI FONKSİYON
+function getSiteName(url) {
+  if (!url) return "Site";
+  if (url.includes('trendyol.com')) return 'Trendyol';
+  if (url.includes('hepsiburada.com')) return 'Hepsiburada';
+  if (url.includes('n11.com')) return 'n11';
+  if (url.includes('amazon.com.tr')) return 'Amazon';
+  if (url.includes('pazarama.com')) return 'Pazarama';
+  if (url.includes('ciceksepeti.com')) return 'ÇiçekSepeti';
+  if (url.includes('idefix.com')) return 'İdefix';
+  return 'Alışveriş Sitesi';
+}
+
+// SUNUCU
 app.listen(PORT, () => {
   console.log(`
-✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
-🚀 FIYATTAKİP API ÇALIŞIYOR!
+✅ PROXY API ÇALIŞIYOR
 📡 Port: ${PORT}
 🌐 URL: https://fiyattakip-api.onrender.com
-✅ Durum: HAZIR
-✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
-`);
-  console.log("🎯 Frontend'den hemen test edebilirsiniz!");
+🤖 Gemini Proxy: AKTİF
+  `);
 });
