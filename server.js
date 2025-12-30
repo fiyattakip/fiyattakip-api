@@ -14,6 +14,44 @@ try {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (GEMINI_API_KEY) {
     geminiAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_FALLBACK_MODELS = [
+  GEMINI_MODEL,
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+  "gemini-pro"
+];
+
+// Gemini çağrısını model fallback ile yap (404 model bulunamadı hatasına karşı)
+async function generateGeminiText(prompt) {
+  if (!geminiAI) throw new Error("GEMINI_API_KEY yok (Render env'e ekle).");
+
+  let lastErr = null;
+  const unique = [...new Set(GEMINI_FALLBACK_MODELS.filter(Boolean))];
+
+  for (const modelName of unique) {
+    try {
+      const model = geminiAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const text = result?.response?.text?.() ?? "";
+      if (text) return { text, model: modelName };
+      // boş döndüyse de devam et
+      lastErr = new Error("Gemini boş yanıt döndü");
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e?.message || "");
+      const status = e?.status || e?.response?.status;
+      if (status === 404 || msg.includes("404") || /not found|bulunamad/i.test(msg)) {
+        continue; // başka modele dene
+      }
+      throw e; // farklı hata: API key, quota, vs
+    }
+  }
+
+  throw lastErr || new Error("Gemini modeli bulunamadı.");
+}
+
     console.log('✅ Gemini AI başlatıldı');
   }
 } catch (error) {
@@ -235,8 +273,6 @@ app.post('/api/ai-yorum', async (req, res) => {
     }
     
     // Gemini AI'ya soru hazırla
-    // "gemini-pro" deprecated olabildigi icin 1.5 Flash kullanilir
-    const model = geminiAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     
     const fiyatText = fiyatlar?.map(f => `${f.site}: ${f.fiyat}`).join('\n') || 'Fiyat bilgisi yok';
     
@@ -256,12 +292,9 @@ app.post('/api/ai-yorum', async (req, res) => {
       
       Türkçe ve emojiler kullan.
     `;
-    
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const aiText = response.text();
-    
-    // Basit analiz
+    const { text: aiText } = await generateGeminiText(prompt);
+
+// Basit analiz
     const prices = fiyatlar?.map(f => {
       const price = parseFloat(f.fiyat.replace(/[^\d.,]/g, '').replace(',', '.'));
       return isNaN(price) ? 0 : price;
