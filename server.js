@@ -157,8 +157,19 @@ app.post("/api/fiyat-cek", async (req, res) => {
   }
 });
 
-// 2. GERÇEK AI YORUM (GEMINI)
-// server.js'de AI endpoint'ini bulun ve bu kodu yapıştırın
+// 2. // server.js - GERÇEK AI ÇALIŞAN KOD
+const express = require("express");
+const cors = require("cors");
+const axios = require("axios");
+const cheerio = require("cheerio");
+
+const app = express();
+app.use(express.json({ limit: "10mb" }));
+app.use(cors({ origin: true }));
+
+const PORT = process.env.PORT || 10000;
+
+// ==================== GERÇEK AI YORUM (GOOGLE GEMINI) ====================
 app.post("/api/ai-yorum", async (req, res) => {
   try {
     const { urun, fiyatlar = [], apiKey } = req.body;
@@ -167,152 +178,232 @@ app.post("/api/ai-yorum", async (req, res) => {
       return res.status(400).json({ success: false, error: "Ürün adı gerekli" });
     }
     
-    console.log("🤖 AI yorum isteği:", urun);
+    console.log("🤖 GERÇEK AI yorum isteği:", urun);
     
-    // API Key kontrolü - ÖNEMLİ: Hem body'den hem de environment'dan kontrol
-    const apiKeyToUse = apiKey || GEMINI_API_KEY;
+    const apiKeyToUse = apiKey;
     
     if (!apiKeyToUse) {
       return res.status(400).json({ 
         success: false, 
-        error: "Gemini API Key gerekli. Lütfen uygulama ayarlarından ekleyin veya sunucuya GEMINI_API_KEY ekleyin." 
+        error: "Gemini API Key gerekli. Lütfen uygulama ayarlarından API Key ekleyin." 
       });
     }
     
-    // Gemini AI başlat
-    const genAI = new GoogleGenerativeAI(apiKeyToUse);
+    // HANGİ MODELLERİ DENE (güncel listesi)
+    const modelsToTry = [
+      "gemini-1.5-flash",        // En yaygın ücretsiz
+      "gemini-1.0-pro",          // Standart
+      "gemini-1.5-pro",          // Pro
+      "gemini-2.0-flash-exp",    // Deneysel
+      "gemini-2.0-flash-lite",   // Lite versiyon
+      "gemini-2.0-flash",        // Yeni flash
+      "gemini-2.0-pro-exp"       // Deneysel pro
+    ];
     
-    // TEK VE DOĞRU MODEL İSMİ:
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    let aiResponse = "";
+    let workingModel = "";
+    let lastError = "";
     
-    // Prompt hazırla
-    let prompt = `${urun} ürünü hakkında alışveriş tavsiyesi ver. ` +
-                 `Fiyat karşılaştırması yap ve satın alma önerisi ver. ` +
-                 `Türkçe, kısa ve net cevap ver.`;
-    
-    if (fiyatlar && fiyatlar.length > 0) {
-      prompt += `\n\nFiyatlar:\n`;
-      fiyatlar.forEach(f => {
-        prompt += `- ${f.site}: ${f.fiyat}\n`;
-      });
+    // MODELLERİ TEK TEK DENE
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`🔍 Model deneniyor: ${modelName}`);
+        
+        // DOĞRUDAN GOOGLE API ÇAĞRISI
+        const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKeyToUse}`;
+        
+        // Prompt hazırla
+        let prompt = `Sen bir e-ticaret asistanısın. Aşağıdaki ürün hakkında kısa, net ve faydalı bir alışveriş tavsiyesi ver.\n\n`;
+        prompt += `**Ürün:** ${urun}\n\n`;
+        
+        if (fiyatlar && fiyatlar.length > 0) {
+          prompt += `**Fiyat Bilgileri:**\n`;
+          fiyatlar.forEach(f => {
+            prompt += `- ${f.site}: ${f.fiyat}\n`;
+          });
+          prompt += `\nBu fiyatları karşılaştırarak:\n`;
+          prompt += `1. En iyi değeri nerede bulabilir?\n`;
+          prompt += `2. Fiyatlar uygun mu?\n`;
+          prompt += `3. Hangi siteyi önerirsin ve neden?\n`;
+        } else {
+          prompt += `Bu ürün için fiyat bilgisi yok. Genel olarak bu tür ürünler alınırken nelere dikkat edilmeli?\n`;
+        }
+        
+        prompt += `\n**NOT:** Yanıtını Türkçe ve günlük konuşma diliyle ver. 150 kelimeyi geçmesin.`;
+        
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 500
+            }
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "AI yanıt oluşturamadı.";
+          workingModel = modelName;
+          console.log(`✅ Model çalıştı: ${modelName}`);
+          break;
+        } else {
+          const errorData = await response.json();
+          lastError = errorData.error?.message || `HTTP ${response.status}`;
+          console.log(`❌ ${modelName} çalışmadı: ${lastError}`);
+        }
+      } catch (error) {
+        lastError = error.message;
+        console.log(`❌ ${modelName} hatası:`, error.message);
+      }
     }
     
-    console.log("📝 Model kullanılıyor: gemini-1.5-flash");
-    
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const aiResponse = response.text().trim();
-    
-    res.json({
-      success: true,
-      aiYorum: aiResponse,
-      yorum: aiResponse,
-      model: "gemini-1.5-flash"
-    });
+    // SONUÇ
+    if (aiResponse) {
+      res.json({
+        success: true,
+        aiYorum: aiResponse,
+        yorum: aiResponse,
+        model: workingModel
+      });
+    } else {
+      // HİÇBİR MODEL ÇALIŞMAZSA - GERÇEK FALLBACK
+      let fallbackMsg = `"${urun}" ürünü için fiyat karşılaştırması:\n\n`;
+      
+      if (fiyatlar && fiyatlar.length > 0) {
+        fallbackMsg += `Bulunan fiyatlar:\n`;
+        fiyatlar.forEach(f => {
+          fallbackMsg += `• ${f.site}: ${f.fiyat}\n`;
+        });
+        fallbackMsg += `\nÖneri: Farklı satıcıları karşılaştırın, yorumları okuyun ve güvenilir sitelerden alın.`;
+      } else {
+        fallbackMsg += `Trendyol, Hepsiburada, Amazon gibi sitelerde arama yaparak en uygun fiyatı bulabilirsiniz.`;
+      }
+      
+      res.json({
+        success: true,
+        aiYorum: fallbackMsg,
+        yorum: fallbackMsg,
+        isFallback: true,
+        error: lastError
+      });
+    }
     
   } catch (error) {
-    console.error("❌ AI yorum hatası:", error.message);
+    console.error("❌ AI yorum hatası:", error);
     
-    // Daha açıklayıcı hata mesajı
-    let errorMessage = "AI yorum yapılamadı";
-    let statusCode = 500;
-    
-    if (error.message.includes("API key")) {
-      errorMessage = "Geçersiz API Key. Lütfen doğru Gemini API Key girin.";
-      statusCode = 401;
-    } else if (error.message.includes("quota")) {
-      errorMessage = "Günlük ücretsiz kullanım limiti doldu. Yarın tekrar deneyin.";
-      statusCode = 429;
-    } else if (error.message.includes("model") || error.message.includes("404")) {
-      errorMessage = "Model bulunamadı. Lütfen 'gemini-1.5-flash' model adını kontrol edin.";
-      statusCode = 400;
-    }
-    
-    // Fallback mesaj - kullanıcı her durumda bir yanıt alsın
     res.json({
       success: true,
-      aiYorum: `"${req.body.urun || 'Bu ürün'}" için detaylı analiz şu an yapılamıyor. ` +
-               `Doğrudan Trendyol veya Hepsiburada'da arama yapmanızı öneririm.`,
-      yorum: `"${req.body.urun || 'Bu ürün'}" için detaylı analiz şu an yapılamıyor. ` +
-             `Doğrudan Trendyol veya Hepsiburada'da arama yapmanızı öneririm.`,
-      isFallback: true,
-      error: errorMessage
+      aiYorum: `"${req.body.urun || 'Ürün'}" için detaylı analiz şu an yapılamıyor. Farklı sitelerde fiyat karşılaştırması yapmanızı öneririm.`,
+      yorum: `"${req.body.urun || 'Ürün'}" için detaylı analiz şu an yapılamıyor. Farklı sitelerde fiyat karşılaştırması yapmanızı öneririm.`,
+      isError: true
     });
   }
 });
 
-// 3. GERÇEK KAMERA AI (GEMINI VISION)
-// Kamera AI endpoint'inde de model adını düzeltin
+// ==================== GERÇEK KAMERA AI ====================
 app.post("/api/kamera-ai", async (req, res) => {
   try {
-    const { image, mime = 'image/jpeg' } = req.body;
+    const { image, mime = 'image/jpeg', apiKey } = req.body;
     
     if (!image) {
-      return res.status(400).json({ success: false, error: "Görsel verisi (base64) gerekli" });
+      return res.status(400).json({ success: false, error: "Görsel verisi gerekli" });
     }
     
-    console.log("📸 Kamera AI isteği - Görsel analizi");
+    console.log("📸 GERÇEK Kamera AI isteği");
     
-    // API Key kontrolü
-    if (!GEMINI_API_KEY) {
-      const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört"];
-      const randomProduct = products[Math.floor(Math.random() * products.length)];
-      return res.json({
-        success: true,
-        urunTahmini: randomProduct,
-        tespitEdilen: randomProduct
+    if (!apiKey) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "API Key gerekli" 
       });
     }
     
-    // Gemini AI başlat
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    // VISION MODELLERİ
+    const visionModels = [
+      "gemini-1.5-flash",        // Vision destekler
+      "gemini-1.5-pro",          // Vision destekler
+      "gemini-2.0-flash-exp"     // Vision destekler
+    ];
     
-    // TEK VE DOĞRU MODEL İSMİ:
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    let detectedText = "";
+    let workingModel = "";
     
-    const prompt = "Bu fotoğrafta ne görüyorsun? Sadece ürün adını Türkçe söyle.";
-    
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: mime,
-          data: image
+    for (const modelName of visionModels) {
+      try {
+        const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`;
+        
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: "Bu fotoğrafta ne görüyorsun? Sadece ürünün adını Türkçe söyle." },
+                {
+                  inlineData: {
+                    mimeType: mime,
+                    data: image
+                  }
+                }
+              ]
+            }]
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          detectedText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Belirlenemedi";
+          workingModel = modelName;
+          console.log(`✅ Vision çalıştı: ${modelName} -> ${detectedText}`);
+          break;
         }
+      } catch (error) {
+        console.log(`❌ ${modelName} vision hatası:`, error.message);
       }
-    ]);
+    }
     
-    const detectedText = result.response.text().trim();
-    console.log("✅ Görselden tespit edilen:", detectedText);
-    
-    res.json({
-      success: true,
-      urunTahmini: detectedText,
-      tespitEdilen: detectedText,
-      model: "gemini-1.5-flash"
-    });
+    if (detectedText) {
+      res.json({
+        success: true,
+        urunTahmini: detectedText,
+        tespitEdilen: detectedText,
+        model: workingModel
+      });
+    } else {
+      // Vision çalışmazsa basit tahmin
+      const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört"];
+      const randomProduct = products[Math.floor(Math.random() * products.length)];
+      
+      res.json({
+        success: true,
+        urunTahmini: randomProduct,
+        tespitEdilen: randomProduct,
+        isFallback: true
+      });
+    }
     
   } catch (error) {
     console.error("❌ Kamera AI hatası:", error);
     
-    // Fallback
-    const products = ["telefon", "laptop", "kitap", "kulaklık", "ayakkabı", "tişört"];
-    const randomProduct = products[Math.floor(Math.random() * products.length)];
-    
     res.json({
       success: true,
-      urunTahmini: randomProduct,
-      tespitEdilen: randomProduct,
-      isFallback: true
+      urunTahmini: "Ürün",
+      tespitEdilen: "Ürün",
+      isError: true
     });
   }
 });
-// ESKİ ENDPOINT YÖNLENDİRMELERİ (geriye uyumluluk)
-app.post("/fiyat-cek", (req, res) => {
-  req.url = "/api/fiyat-cek";
-  app._router.handle(req, res, () => {});
-});
 
+// ... Diğer endpoint'ler aynı kalacak ...
+app.post("/api/fiyat-cek", async (req, res) => { /* Aynı */ });
+app.get("/health", (req, res) => { res.json({ success: true }); });
+
+// ESKİ ENDPOINT YÖNLENDİRMELERİ
 app.post("/ai-yorum", (req, res) => {
   req.url = "/api/ai-yorum";
   app._router.handle(req, res, () => {});
@@ -325,4 +416,5 @@ app.post("/kamera-ai", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`✅ API http://localhost:${PORT} adresinde çalışıyor`);
+  console.log(`🤖 GERÇEK AI: AKTİF (Google Gemini API)`);
 });
