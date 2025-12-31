@@ -1,11 +1,13 @@
-
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+
+// ✅ PayloadTooLargeError fix: allow bigger JSON bodies (camera base64 vs. etc.)
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 const PORT = process.env.PORT || 3000;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
@@ -14,17 +16,21 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", ai: !!GEMINI_KEY });
 });
 
+// Accept ONLY the fields we need, ignore the rest (prevents huge objects breaking logic)
 app.post("/api/ai-comment", async (req, res) => {
-  const { product } = req.body;
+  const product = (req.body?.product || "").toString().slice(0, 200);
+
   if (!product) return res.status(400).json({ error: "product gerekli" });
 
   const prompt = `Kullanıcı bir ürün adı verdi: "${product}".
-Kısa ve öz artı-eksi yorumu yap. Alınır mı? Kimler için uygun?
-Türkçe yaz.`;
+Fiyat bilgisi olmadan, kısa ve öz (max 5-6 cümle) artı-eksi yorumu yap.
+Alınır mı? Kimler için uygun? Türkçe yaz.`;
 
   try {
     if (!GEMINI_KEY) {
-      return res.json({ text: "Bu ürün günlük kullanım için uygundur, beklentiye göre değerlendirilmelidir." });
+      return res.json({
+        text: "Bu ürün günlük kullanım için uygundur. Beklentine göre teknik özellikleri (ekran, pil, garanti) kontrol ederek karar ver."
+      });
     }
 
     const r = await fetch(
@@ -39,12 +45,19 @@ Türkçe yaz.`;
     );
 
     const j = await r.json();
-    const text = j.candidates?.[0]?.content?.parts?.[0]?.text || "AI yorum üretilemedi.";
-    res.json({ text });
+    const text =
+      j.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "AI yorum üretilemedi.";
 
+    res.json({ text });
   } catch (e) {
-    res.json({ text: "Bu ürün temel kullanım için uygundur, alternatifler de incelenebilir." });
+    res.json({
+      text: "Bu ürün için genel değerlendirme: günlük kullanım için mantıklı olabilir; ihtiyaçların yüksekse alternatifleri de incele."
+    });
   }
 });
 
-app.listen(PORT, () => console.log("API running", PORT));
+// Optional: consistent 404
+app.use((req, res) => res.status(404).json({ error: "not_found" }));
+
+app.listen(PORT, () => console.log("API running on", PORT));
