@@ -1,10 +1,7 @@
 services:
   - type: web
-    name: fiyattakip-api
+    name: flyattakip-api
     env: node
-    plan: free
     buildCommand: npm install
-    startCommand: npm start
-    envVars:
-      - key: GEMINI_API_KEY
-        sync: false
+    startCommand: node server.js
+    nodeVersion: 20.18.0
