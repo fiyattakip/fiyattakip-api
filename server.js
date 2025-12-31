@@ -8,67 +8,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// -------------------------
-// Local (free) AI fallback: heuristic product review generator
-// -------------------------
-function heuristicComment(query){
-  const q = String(query||"").trim();
-  const low = q.toLowerCase();
-
-  const specs = {};
-  const mStorage = low.match(/(\d+)\s*(tb|gb)\b/);
-  if(mStorage){ specs.storage = mStorage[1]+mStorage[2].toUpperCase(); }
-  const mRam = low.match(/\b(\d+)\s*gb\s*ram\b/);
-  if(mRam){ specs.ram = mRam[1]+"GB"; }
-  const mInch = low.match(/(\d+(?:[\.,]\d+)?)\s*(?:inç|inch|\")/);
-  if(mInch){ specs.screen = mInch[1].replace(',','.')+'"'; }
-
-  const isPhone = /(iphone|samsung|galaxy|xiaomi|redmi|pixel|telefon|android)/.test(low);
-  const isTablet = /(ipad|tablet|pad\b|galaxy tab|matepad)/.test(low);
-  const isLaptop = /(laptop|notebook|ultrabook|macbook)/.test(low);
-  const isHeadphone = /(airpods|kulakl\w+|earbuds|headset|bluetooth)/.test(low);
-
-  const bullets = [];
-  if(isPhone){
-    bullets.push("• Kamera ve pil günlük kullanımda en kritik iki konu.");
-    bullets.push("• Depolama doluluk hızına dikkat: 128GB altı uzun vadede sıkıştırabilir.");
-    bullets.push("• Yazılım güncelleme süresi ve servis/garanti şartları önemli.");
-  } else if(isTablet){
-    bullets.push("• Ekran kalitesi ve kalem/klavye desteği verimliliği belirler.");
-    bullets.push("• İşlemci + RAM, çoklu görev ve oyun performansını etkiler.");
-    bullets.push("• Güncelleme desteği ve aksesuar ekosistemine bak.");
-  } else if(isLaptop){
-    bullets.push("• İşlemci modeli ve RAM yükseltilebilirliği en kritik noktalar.");
-    bullets.push("• SSD kapasitesi ve ekran (IPS/Hz) deneyimi çok değiştirir.");
-    bullets.push("• Soğutma ve pil ömrü, ince kasalarda belirleyicidir.");
-  } else if(isHeadphone){
-    bullets.push("• Aktif gürültü engelleme ve mikrofon kalitesi günlükte fark yaratır.");
-    bullets.push("• Codec (AAC/LDAC) ve gecikme oyun/video için önemli.");
-    bullets.push("• Kulak içi rahatlığı ve pil süresi mutlaka kontrol et.");
-  } else {
-    bullets.push("• İhtiyacına göre performans/kalite dengesine odaklan.");
-    bullets.push("• Garanti, servis ve iade koşulları satın alma kadar önemli.");
-    bullets.push("• Benzer fiyat bandında alternatifleri de kontrol et.");
-  }
-
-  const extras = [];
-  if(specs.ram) extras.push(`RAM: ${specs.ram}`);
-  if(specs.storage) extras.push(`Depolama: ${specs.storage}`);
-  if(specs.screen) extras.push(`Ekran: ${specs.screen}`);
-  const specLine = extras.length ? `\nÖne çıkanlar: ${extras.join(" • ")}.` : "";
-
-  // make it feel less repetitive
-  const tips = [
-    "Satıcı puanı ve yorum sayısı düşükse temkinli ol.",
-    "Aynı modelin farklı varyantlarını (RAM/Depolama) karıştırmamaya dikkat et.",
-    "Aksesuar uyumluluğu ve güncelleme politikası uzun vadede değer katar."
-  ];
-  const tip = tips[Math.floor(Math.random()*tips.length)];
-
-  return `Kısa değerlendirme (${q}):\n${bullets.join("\n")}${specLine}\n\nİpucu: ${tip}`;
-}
-
-
 // ==================== GEMINI AI KURULUMU ====================
 let geminiAI = null;
 try {
@@ -269,36 +208,89 @@ app.post('/api/fiyat-cek', async (req, res) => {
 });
 
 // 2. GEMINI AI YORUM
-
 app.post('/api/ai-yorum', async (req, res) => {
   try {
-    const { urun, product, query } = req.body || {};
-    const q = (urun || product || query || "").toString().trim();
-    if (!q) return res.status(400).json({ success:false, error:"Ürün adı gerekli" });
-
-    // 1) Try Gemini if configured
-    if (geminiAI) {
-      try{
-        const model = geminiAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        const prompt = `Kullanıcı ürünü: "${q}".\nFiyat çekemiyoruz (bot engeli).\nSadece ürünün artı/eksi yönlerini, kimlere uygun olduğunu ve dikkat edilmesi gerekenleri 5-7 kısa maddeyle Türkçe yaz. Model/kapasite/RAM gibi detayları varsa kullan. Çok genel konuşma, ürüne özgü ol.`;
-        const result = await model.generateContent(prompt);
-        const text = result?.response?.text?.() || "";
-        if (text && text.length > 40) {
-          return res.json({ success:true, yorum:text.trim(), provider:"gemini" });
+    const { urun, fiyatlar } = req.body;
+    
+    if (!geminiAI) {
+      return res.json({
+        success: true,
+        yorum: "🤖 AI şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
+        aiYorum: "Gemini AI API anahtarı gerekiyor.",
+        detay: {
+          enUcuzFiyat: "N/A",
+          enPahaliFiyat: "N/A",
+          ortalamaFiyat: "N/A",
+          indirimOrani: "N/A",
+          siteSayisi: fiyatlar?.length || 0
         }
-      }catch(e){
-        // quota / model not found / 4xx etc -> fallback
-        console.warn("Gemini hata, fallback:", e?.message || e);
-      }
+      });
     }
-
-    // 2) Free fallback (no external API)
-    const yorum = heuristicComment(q);
-    return res.json({ success:true, yorum, provider:"local" });
-
-  } catch (err) {
-    console.error("AI yorum hatası:", err);
-    return res.status(500).json({ success:false, error:"AI yorum alınamadı" });
+    
+    if (!urun) {
+      return res.json({
+        success: false,
+        error: 'Ürün bilgisi gerekli'
+      });
+    }
+    
+    // Gemini AI'ya soru hazırla
+    const model = geminiAI.getGenerativeModel({ model: 'gemini-pro' });
+    
+    const fiyatText = fiyatlar?.map(f => `${f.site}: ${f.fiyat}`).join('\n') || 'Fiyat bilgisi yok';
+    
+    const prompt = `
+      Sen bir fiyat analiz uzmanısın. Aşağıdaki ürün için fiyat analizi yap:
+      
+      Ürün: ${urun}
+      
+      Fiyatlar:
+      ${fiyatText}
+      
+      Lütfen kısa ve net bir şekilde:
+      1. En uygun fiyatı belirle
+      2. Ortalama fiyatı hesapla
+      3. Alınabilir mi tavsiyesi ver
+      4. Kısa yorum yap (max 150 karakter)
+      
+      Türkçe ve emojiler kullan.
+    `;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const aiText = response.text();
+    
+    // Basit analiz
+    const prices = fiyatlar?.map(f => {
+      const price = parseFloat(f.fiyat.replace(/[^\d.,]/g, '').replace(',', '.'));
+      return isNaN(price) ? 0 : price;
+    }).filter(p => p > 0) || [];
+    
+    const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+    const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+    const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
+    
+    res.json({
+      success: true,
+      urun: urun,
+      aiYorum: aiText,
+      detay: {
+        enUcuzFiyat: minPrice > 0 ? `₺${minPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : "N/A",
+        enPahaliFiyat: maxPrice > 0 ? `₺${maxPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : "N/A",
+        ortalamaFiyat: avgPrice > 0 ? `₺${avgPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : "N/A",
+        indirimOrani: minPrice > 0 && maxPrice > 0 ? `%${Math.round(((maxPrice - minPrice) / maxPrice) * 100)}` : "N/A",
+        siteSayisi: prices.length
+      },
+      tarih: new Date().toLocaleString('tr-TR')
+    });
+    
+  } catch (error) {
+    console.error('AI hatası:', error);
+    res.json({
+      success: false,
+      error: 'AI yorum yapılamadı',
+      aiYorum: "📊 Fiyatlar karşılaştırıldı. En uygun seçeneği tercih edin."
+    });
   }
 });
 
