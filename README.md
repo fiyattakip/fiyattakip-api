@@ -1,23 +1,11 @@
-# FiyatTakip API v4.1
+# FiyatTakip API (Stable)
 
-13+ e-ticaret sitesinde akıllı fiyat karşılaştırma.
+## Render ENV
+- `GEMINI_API_KEY` : Google Gemini API key
 
-## Özellikler
-- 13+ site (Trendyol, Hepsiburada, n11, Amazon, Çiçek Sepeti, İdefix...)
-- En düşük fiyat sıralaması 🥇🥈🥉
-- Favori yönetimi (en ucuz üstte)
-- AI yorumlama (basit)
-- İndirim bildirim sistemi
+## Endpoints
+- GET `/health`
+- GET `/api/health`
+- POST `/api/ai-yorum`  body: `{ "urun": "Xiaomi Pad 7 256GB" }`
 
-## API Endpoints
-- `POST /api/fiyat-cek` - Fiyat karşılaştırma
-- `POST /api/favori-ekle` - Favorilere ekle
-- `GET /api/favoriler/:userId` - Favorileri getir (en ucuz üstte)
-- `POST /api/ai-yorum` - AI analiz
-- `POST /api/indirim-bildirim-ayarla` - İndirim bildirimi ayarla
-- `GET /health` - Sistem durumu
-
-## Kurulum
-```bash
-npm install
-npm start
+> Not: Fiyat çekme (scrape) yok. Sitelere bot engeli yüzünden kaldırıldı.
