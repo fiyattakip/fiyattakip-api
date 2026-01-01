@@ -418,3 +418,28 @@ app.listen(PORT, () => {
   console.log(`🌐 Endpoint: http://localhost:${PORT}/api/fiyat-cek`);
   console.log(`📱 PWA uygulaması için hazır!`);
 });
+
+import fetch from "node-fetch";
+
+app.post("/ai/yorum", async (req, res) => {
+  try {
+    const { title, price, site } = req.body;
+
+    if (!title) {
+      return res.status(400).json({ error: "Ürün başlığı yok" });
+    }
+
+    // ŞİMDİLİK DIŞ AI YOK – DUMMY AMA ÇALIŞAN
+    const yorum = `
+${title} ürünü ${site || "pazar yerinde"} satılmaktadır.
+${price ? `Fiyatı yaklaşık ${price} TL.` : ""}
+Ürün özellikleri ve fiyat/performans dengesi kullanıcı yorumlarına göre değerlendirilmelidir.
+`;
+
+    res.json({ success: true, yorum });
+
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "AI servis hatası" });
+  }
+});
