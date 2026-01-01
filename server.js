@@ -411,6 +411,30 @@ function filterRelevantProducts(products, query) {
   }).sort((a, b) => b.relevanceScore - a.relevanceScore);
 }
 
+// =====================
+// AI YORUM ROUTE (BURAYA)
+// =====================
+app.post("/ai/yorum", async (req, res) => {
+  try {
+    const { title, price, site } = req.body;
+
+    if (!title) {
+      return res.status(400).json({ error: "Ürün başlığı yok" });
+    }
+
+    const yorum = `
+${title} ürünü ${site || "pazar yerinde"} satılmaktadır.
+${price ? `Fiyatı yaklaşık ${price} TL.` : ""}
+Ürün özellikleri ve fiyat/performans dengesi kullanıcı ihtiyacına göre değerlendirilebilir.
+    `.trim();
+
+    res.json({ success: true, yorum });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "AI servis hatası" });
+  }
+});
+
 // ==================== SERVER BAŞLATMA ====================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
@@ -419,7 +443,6 @@ app.listen(PORT, () => {
   console.log(`📱 PWA uygulaması için hazır!`);
 });
 
-import fetch from "node-fetch";
 
 app.post("/ai/yorum", async (req, res) => {
   try {
