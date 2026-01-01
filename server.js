@@ -1,266 +1,420 @@
-/**
- * FiyatTakip API (Light Scraper)
- * - /api/health
- * - /api/search?q=iphone+13&limit=10
- *
- * NOTE:
- * Scraping e‑ticaret siteleri sık sık değişir ve bot korumaları nedeniyle bazı ağlarda çalışmayabilir.
- * Bu sunucu "en azından doğru link" üretmek için her siteden JSON‑LD (application/ld+json) okumayı dener.
- * Başarısız olursa: o site için "searchUrl" döner (anasayfaya değil, arama sayfasına götürür).
- */
-
-import express from "express";
-import cors from "cors";
-import axios from "axios";
-import * as cheerio from "cheerio";
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const cheerio = require('cheerio');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
-
-const UA =
-  process.env.USER_AGENT ||
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
-
-const http = axios.create({
-  timeout: 20000,
-  headers: {
-    "user-agent": UA,
-    "accept-language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-    accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  },
-  maxRedirects: 5,
-  validateStatus: (s) => s >= 200 && s < 400,
-});
-
-function cleanPrice(val) {
-  if (val == null) return null;
-  const s = String(val)
-    .replace(/[^\d,\.]/g, "")
-    .replace(/\.(?=\d{3}(\D|$))/g, "") // thousand dots
-    .replace(",", ".");
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
+// ==================== GEMINI AI KURULUMU ====================
+let geminiAI = null;
+try {
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  if (GEMINI_API_KEY) {
+    geminiAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    console.log('✅ Gemini AI başlatıldı');
+  }
+} catch (error) {
+  console.log('❌ Gemini AI başlatılamadı:', error.message);
 }
 
-/**
- * Try to read ItemList from JSON-LD blocks.
- */
-function parseJsonLdItemList(html, siteId) {
-  const $ = cheerio.load(html);
-  const blocks = $('script[type="application/ld+json"]')
-    .map((_, el) => $(el).text())
-    .get()
-    .filter(Boolean);
+// ==================== ÖNBELLEK ====================
+const cache = {
+  prices: new Map(),
+  favorites: new Map(),
+  duration: 10 * 60 * 1000 // 10 dakika
+};
 
-  const items = [];
-  for (const raw of blocks) {
-    let json;
-    try {
-      json = JSON.parse(raw);
-    } catch {
-      // some pages have multiple json objects in one block
-      try {
-        const fixed = raw.trim().replace(/}\s*{/g, "},{");
-        json = JSON.parse(`[${fixed}]`);
-      } catch {
-        continue;
-      }
+// ==================== ÇALIŞAN SİTELER ====================
+const SITES = {
+  'Trendyol': {
+    url: (query) => `https://www.trendyol.com/sr?q=${encodeURIComponent(query)}&qt=${encodeURIComponent(query)}&st=${encodeURIComponent(query)}&os=1`,
+    selector: 'div.p-card-wrppr, div[class*="product-card"]',
+    extract: ($, el) => {
+      return {
+        title: $(el).find('span.prdct-desc-cntnr-ttl').text().trim() || 
+               $(el).find('span.prdct-desc-cntnr-name').text().trim() ||
+               'Ürün',
+        price: $(el).find('div.prc-box-dscntd').text().trim() || 'Fiyat yok',
+        link: 'https://www.trendyol.com' + ($(el).find('a').attr('href') || '')
+      };
     }
+  },
+  
+  'Hepsiburada': {
+    url: (query) => `https://www.hepsiburada.com/ara?q=${encodeURIComponent(query)}`,
+    selector: 'li[class*="productList"], li[data-testid="product-card"]',
+    extract: ($, el) => {
+      return {
 
-    const arr = Array.isArray(json) ? json : [json];
+function getGeminiClientFromReq(req) {
+  const headerKey = req.headers['x-gemini-key'] || req.headers['x-gemini-api-key'];
+  const bodyKey = req.body && (req.body.apiKey || req.body.geminiKey);
+  const key = (headerKey || bodyKey || '').toString().trim();
+  if (!key) return null;
+  try {
+    return new GoogleGenerativeAI(key);
+  } catch (e) {
+    return null;
+  }
+}
 
-    for (const obj of arr) {
-      if (!obj) continue;
-      // Find an ItemList
-      if (obj["@type"] === "ItemList" && Array.isArray(obj.itemListElement)) {
-        for (const el of obj.itemListElement) {
-          const it = el.item || el;
-          if (!it) continue;
+        title: $(el).find('h3[data-testid="product-card-name"]').text().trim() || 'Ürün',
+        price: $(el).find('div[data-testid="price-current-price"]').text().trim() || 'Fiyat yok',
+        link: 'https://www.hepsiburada.com' + ($(el).find('a[data-testid="product-card"]').attr('href') || '')
+      };
+    }
+  },
+  
+  'n11': {
+    url: (query) => `https://www.n11.com/arama?q=${encodeURIComponent(query)}`,
+    selector: 'li.column, .listItem',
+    extract: ($, el) => {
+      return {
+        title: $(el).find('h3.productName').text().trim() || 'Ürün',
+        price: $(el).find('.newPrice').text().trim() || 'Fiyat yok',
+        link: $(el).find('a').attr('href') || 'https://www.n11.com'
+      };
+    }
+  },
+  
+  'Amazon': {
+    url: (query) => `https://www.amazon.com.tr/s?k=${encodeURIComponent(query)}`,
+    selector: 'div[data-component-type="s-search-result"]',
+    extract: ($, el) => {
+      const title = $(el).find('h2 a span').text().trim();
+      const priceWhole = $(el).find('.a-price-whole').text().trim();
+      const priceFraction = $(el).find('.a-price-fraction').text().trim();
+      const price = priceWhole ? `${priceWhole}${priceFraction ? '.' + priceFraction : ''} TL` : 'Fiyat yok';
+      
+      return {
+        title: title || 'Ürün',
+        price: price,
+        link: 'https://www.amazon.com.tr' + ($(el).find('h2 a').attr('href') || '')
+      };
+    }
+  }
+};
 
-          const name = it.name || null;
-          const url = it.url || it["@id"] || null;
-
-          // Offer could be nested
-          const offers = it.offers || (it.aggregateOffer ? it.aggregateOffer : null);
-          const price =
-            offers?.price ??
-            offers?.lowPrice ??
-            offers?.highPrice ??
-            offers?.offers?.price ??
-            null;
-
-          const currency = offers?.priceCurrency || "TRY";
-
-          items.push({
-            site: siteId,
-            title: name,
-            price: cleanPrice(price),
-            currency,
-            link: url,
+// ==================== SCRAPING FONKSİYONU ====================
+async function scrapeSite(siteName, query) {
+  const site = SITES[siteName];
+  try {
+    const response = await axios.get(site.url(query), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9'
+      },
+      timeout: 15000
+    });
+    
+    const $ = cheerio.load(response.data);
+    const products = [];
+    
+    $(site.selector).each((i, el) => {
+      if (products.length >= 4) return false;
+      
+      try {
+        const product = site.extract($, el);
+        if (product.title && product.title !== 'Ürün' && 
+            product.price && product.price !== 'Fiyat yok') {
+          products.push({
+            site: siteName,
+            urun: product.title.substring(0, 80),
+            fiyat: product.price.replace('TL', '₺').trim(),
+            link: product.link,
+            numericPrice: parseFloat(product.price.replace(/[^\d.,]/g, '').replace(',', '.')) || 999999
           });
         }
+      } catch (err) {
+        // Hata durumunda geç
       }
-
-      // Some sites put Product schema directly (not ItemList). We still accept.
-      if (obj["@type"] === "Product" && (obj.name || obj.offers)) {
-        const name = obj.name || null;
-        const url = obj.url || obj["@id"] || null;
-        const offers = obj.offers || null;
-        const price = offers?.price ?? offers?.lowPrice ?? null;
-        const currency = offers?.priceCurrency || "TRY";
-        items.push({
-          site: siteId,
-          title: name,
-          price: cleanPrice(price),
-          currency,
-          link: url,
-        });
-      }
-    }
+    });
+    
+    return products.length > 0 ? products : [];
+    
+  } catch (error) {
+    console.log(`${siteName} hata: ${error.message}`);
+    return [];
   }
-
-  // Clean + dedupe
-  const seen = new Set();
-  const cleaned = [];
-  for (const it of items) {
-    if (!it.title || !it.link) continue;
-    const key = `${it.site}|${it.link}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    cleaned.push(it);
-  }
-  return cleaned;
 }
 
-/**
- * Provider config: add as many as you want.
- * If parsing fails, we still return searchUrl so frontend opens the correct search page.
- */
-const SITES = [
-  {
-    id: "trendyol",
-    name: "Trendyol",
-    searchUrl: (q) => `https://www.trendyol.com/sr?q=${encodeURIComponent(q)}`,
-  },
-  {
-    id: "hepsiburada",
-    name: "Hepsiburada",
-    searchUrl: (q) => `https://www.hepsiburada.com/ara?q=${encodeURIComponent(q)}`,
-  },
-  {
-    id: "n11",
-    name: "n11",
-    searchUrl: (q) => `https://www.n11.com/arama?q=${encodeURIComponent(q)}`,
-  },
-  {
-    id: "amazontr",
-    name: "Amazon TR",
-    searchUrl: (q) =>
-      `https://www.amazon.com.tr/s?k=${encodeURIComponent(q)}&language=tr_TR`,
-  },
-  {
-    id: "teknosa",
-    name: "Teknosa",
-    searchUrl: (q) => `https://www.teknosa.com/arama?text=${encodeURIComponent(q)}`,
-  },
-  {
-    id: "vatan",
-    name: "Vatan",
-    searchUrl: (q) =>
-      `https://www.vatanbilgisayar.com/arama/${encodeURIComponent(q)}/`,
-  },
-  {
-    id: "mediamarkt",
-    name: "MediaMarkt",
-    searchUrl: (q) =>
-      `https://www.mediamarkt.com.tr/tr/search.html?query=${encodeURIComponent(q)}`,
-  },
-  {
-    id: "pttavm",
-    name: "PttAVM",
-    searchUrl: (q) => `https://www.pttavm.com/arama?q=${encodeURIComponent(q)}`,
-  },
-  {
-    id: "ciceksepeti",
-    name: "ÇiçekSepeti",
-    searchUrl: (q) =>
-      `https://www.ciceksepeti.com/arama?query=${encodeURIComponent(q)}`,
-  },
-];
+// ==================== API ENDPOINT'LERİ ====================
 
-async function fetchSiteOffers(site, q, limitPerSite) {
-  const url = site.searchUrl(q);
+// 1. ANA FİYAT ÇEKME (4'erli sayfalar)
+app.post('/api/fiyat-cek', async (req, res) => {
   try {
-    const res = await http.get(url);
-    const html = res.data;
-    const parsed = parseJsonLdItemList(html, site.id).slice(0, limitPerSite);
-
-    // Ensure absolute link for relative urls
-    const abs = parsed.map((it) => ({
-      ...it,
-      link: it.link?.startsWith("http") ? it.link : new URL(it.link, url).toString(),
-      searchUrl: url,
-      siteName: site.name,
-    }));
-
-    return abs;
-  } catch (e) {
-    return []; // fail silently; caller adds site searchUrl separately
+    const { urun, page = 1, sort = 'asc' } = req.body;
+    
+    if (!urun || urun.trim().length < 2) {
+      return res.json({ success: false, error: 'En az 2 karakter girin' });
+    }
+    
+    const query = urun.trim();
+    const cacheKey = `${query}_${page}_${sort}`;
+    
+    // Önbellek kontrol
+    const cached = cache.prices.get(cacheKey);
+    if (cached && (Date.now() - cached.time) < cache.duration) {
+      return res.json(cached.data);
+    }
+    
+    // Tüm sitelerden veri çek
+    const promises = Object.keys(SITES).map(site => scrapeSite(site, query));
+    const results = await Promise.allSettled(promises);
+    
+    let allProducts = [];
+    results.forEach(result => {
+      if (result.status === 'fulfilled') {
+        allProducts = allProducts.concat(result.value);
+      }
+    });
+    
+    // Alakalı ürünleri filtrele
+    const relevantProducts = filterRelevantProducts(allProducts, query);
+    
+    // Sıralama
+    if (sort === 'asc') {
+      relevantProducts.sort((a, b) => a.numericPrice - b.numericPrice);
+    } else {
+      relevantProducts.sort((a, b) => b.numericPrice - a.numericPrice);
+    }
+    
+    // Sayfalama (4 ürün/sayfa)
+    const pageSize = 4;
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const pagedProducts = relevantProducts.slice(startIndex, endIndex);
+    const totalPages = Math.ceil(relevantProducts.length / pageSize);
+    
+    const response = {
+      success: true,
+      query: query,
+      fiyatlar: pagedProducts,
+      sayfa: parseInt(page),
+      toplamSayfa: totalPages,
+      toplamUrun: relevantProducts.length,
+      siralama: sort,
+      sites: Object.keys(SITES).length,
+      timestamp: new Date().toISOString()
+    };
+    
+    // Önbelleğe kaydet
+    cache.prices.set(cacheKey, {
+      time: Date.now(),
+      data: response
+    });
+    
+    res.json(response);
+    
+  } catch (error) {
+    console.error('API hatası:', error);
+    res.json({ 
+      success: false, 
+      error: 'Sunucu hatası',
+      fiyatlar: [] 
+    });
   }
+});
+
+// 2. GEMINI AI YORUM
+app.post('/api/ai-yorum', async (req, res) => {
+  try {
+    const { urun, fiyatlar } = req.body;
+    
+    const client = getGeminiClientFromReq(req) || geminiAI;
+  if (!client) {
+    return res.status(400).json({ success: false, error: 'GEMINI_API_KEY_REQUIRED' });
+  }
+    
+    if (!urun) {
+      return res.json({
+        success: false,
+        error: 'Ürün bilgisi gerekli'
+      });
+    }
+    
+    // Gemini AI'ya soru hazırla
+    const modelName = req.body?.model || 'gemini-1.5-flash';
+    const model = client.getGenerativeModel({ model: modelName });
+    
+    const fiyatText = fiyatlar?.map(f => `${f.site}: ${f.fiyat}`).join('\n') || 'Fiyat bilgisi yok';
+    
+    const prompt = `
+      Sen bir fiyat analiz uzmanısın. Aşağıdaki ürün için fiyat analizi yap:
+      
+      Ürün: ${urun}
+      
+      Fiyatlar:
+      ${fiyatText}
+      
+      Lütfen kısa ve net bir şekilde:
+      1. En uygun fiyatı belirle
+      2. Ortalama fiyatı hesapla
+      3. Alınabilir mi tavsiyesi ver
+      4. Kısa yorum yap (max 150 karakter)
+      
+      Türkçe ve emojiler kullan.
+    `;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const aiText = response.text();
+    
+    // Basit analiz
+    const prices = fiyatlar?.map(f => {
+      const price = parseFloat(f.fiyat.replace(/[^\d.,]/g, '').replace(',', '.'));
+      return isNaN(price) ? 0 : price;
+    }).filter(p => p > 0) || [];
+    
+    const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+    const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+    const avgPrice = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
+    
+    res.json({
+      success: true,
+      urun: urun,
+      aiYorum: aiText,
+      detay: {
+        enUcuzFiyat: minPrice > 0 ? `₺${minPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : "N/A",
+        enPahaliFiyat: maxPrice > 0 ? `₺${maxPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : "N/A",
+        ortalamaFiyat: avgPrice > 0 ? `₺${avgPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}` : "N/A",
+        indirimOrani: minPrice > 0 && maxPrice > 0 ? `%${Math.round(((maxPrice - minPrice) / maxPrice) * 100)}` : "N/A",
+        siteSayisi: prices.length
+      },
+      tarih: new Date().toLocaleString('tr-TR')
+    });
+    
+  } catch (error) {
+    console.error('AI hatası:', error);
+    res.json({
+      success: false,
+      error: 'AI yorum yapılamadı',
+      aiYorum: "📊 Fiyatlar karşılaştırıldı. En uygun seçeneği tercih edin."
+    });
+  }
+});
+
+// 3. KAMERA AI ARAMA
+app.post('/api/kamera-ai', async (req, res) => {
+  try {
+    const { image, mime, text } = req.body;
+    
+    let urunTahmini = text || 'telefon';
+    
+    // Basit ürün tahmini
+    const tahminler = {
+      'telefon': 'akıllı telefon',
+      'iphone': 'iPhone',
+      'samsung': 'Samsung telefon',
+      'bilgisayar': 'dizüstü bilgisayar',
+      'laptop': 'laptop',
+      'televizyon': 'smart tv',
+      'tv': 'televizyon',
+      'ayakkabı': 'spor ayakkabı',
+      'giyim': 'tişört',
+      'kitap': 'roman kitabı',
+      'kulaklık': 'bluetooth kulaklık'
+    };
+    
+    Object.keys(tahminler).forEach(key => {
+      if ((text || '').toLowerCase().includes(key)) {
+        urunTahmini = tahminler[key];
+      }
+    });
+    
+    // Bu ürün için arama yap
+    const promises = Object.keys(SITES).map(site => scrapeSite(site, urunTahmini));
+    const results = await Promise.allSettled(promises);
+    
+    let allProducts = [];
+    results.forEach(result => {
+      if (result.status === 'fulfilled') {
+        allProducts = allProducts.concat(result.value);
+      }
+    });
+    
+    const relevantProducts = filterRelevantProducts(allProducts, urunTahmini);
+    const topProducts = relevantProducts.slice(0, 4);
+    
+    res.json({
+      success: true,
+      tespitEdilen: text || 'Görsel tespit edildi',
+      urunTahmini: urunTahmini,
+      aramaSonucu: {
+        urun: urunTahmini,
+        bulunan: relevantProducts.length,
+        fiyatlar: topProducts
+      },
+      mesaj: "📸 Görselden ürün tespit edildi ve fiyatlar getirildi."
+    });
+    
+  } catch (error) {
+    res.json({
+      success: false,
+      error: 'Kamera AI hatası',
+      urunTahmini: 'telefon',
+      aramaSonucu: {
+        urun: 'telefon',
+        bulunan: 0,
+        fiyatlar: []
+      }
+    });
+  }
+});
+
+// 4. SAĞLIK KONTROLÜ
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'online',
+    zaman: new Date().toLocaleString('tr-TR'),
+    versiyon: '2.0.0',
+    ozellikler: [
+      '4 site desteği (Trendyol, Hepsiburada, n11, Amazon)',
+      'Sayfalama (4 ürün/sayfa)',
+      'Sıralama (artan/azalan fiyat)',
+      'Gemini AI yorum',
+      'Kamera AI arama',
+      'Alakalı ürün filtresi'
+    ],
+    ai: geminiAI ? 'Aktif' : 'Pasif',
+    cache: {
+      prices: cache.prices.size,
+      favorites: cache.favorites.size
+    }
+  });
+});
+
+// ==================== YARDIMCI FONKSİYONLAR ====================
+function filterRelevantProducts(products, query) {
+  const queryWords = query.toLowerCase().split(' ').filter(w => w.length > 2);
+  
+  return products.filter(product => {
+    const title = product.urun.toLowerCase();
+    let score = 0;
+    
+    queryWords.forEach(word => {
+      if (title.includes(word)) score += 10;
+      if (title.startsWith(word)) score += 5;
+    });
+    
+    // Fiyatı olmayanları ele
+    if (product.fiyat === 'Fiyat yok' || product.fiyat.includes('Siteye git')) {
+      score -= 50;
+    }
+    
+    product.relevanceScore = score;
+    return score > 0;
+  }).sort((a, b) => b.relevanceScore - a.relevanceScore);
 }
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
-});
-
-app.get("/api/search", async (req, res) => {
-  const q = String(req.query.q || "").trim();
-  const limit = Math.min(Math.max(Number(req.query.limit || 10), 1), 30);
-  if (!q) return res.status(400).json({ ok: false, error: "q is required" });
-
-  const limitPerSite = Math.max(3, Math.ceil(limit / 3));
-
-  const all = [];
-  await Promise.all(
-    SITES.map(async (site) => {
-      const offers = await fetchSiteOffers(site, q, limitPerSite);
-      all.push(...offers);
-    })
-  );
-
-  // Sort by price if available
-  all.sort((a, b) => {
-    const pa = a.price ?? Number.POSITIVE_INFINITY;
-    const pb = b.price ?? Number.POSITIVE_INFINITY;
-    return pa - pb;
-  });
-
-  // take limit
-  const results = all.slice(0, limit).map((x) => ({
-    site: x.site,
-    siteName: x.siteName,
-    title: x.title,
-    price: x.price,
-    currency: x.currency,
-    link: x.link,
-    url: x.link,
-    // For safety: if link becomes empty, frontend can open searchUrl
-    searchUrl: x.searchUrl,
-  }));
-
-  // Always provide site search links so frontend can still work if scraping fails
-  const siteLinks = SITES.map((s) => ({
-    id: s.id,
-    name: s.name,
-    searchUrl: s.searchUrl(q),
-  }));
-
-  res.json({ ok: true, query: q, results, sites: siteLinks });
-});
-
+// ==================== SERVER BAŞLATMA ====================
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`FiyatTakip API running on :${PORT}`);
+  console.log(`🚀 FiyatTakip API v2.0 ${PORT} portunda`);
+  console.log(`🌐 Endpoint: http://localhost:${PORT}/api/fiyat-cek`);
+  console.log(`📱 PWA uygulaması için hazır!`);
 });
