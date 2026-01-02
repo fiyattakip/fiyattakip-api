@@ -32,4 +32,14 @@ app.post("/ai/yorum", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log("API çalışıyor:", PORT));
+app.listen(PORT, () => {
+  console.log(`🚀 API çalışıyor: ${PORT}`);
+  console.log(`🌐 URL: http://localhost:${PORT}`);
+  console.log(`🔑 Gemini: ${process.env.GEMINI_API_KEY ? "Hazır" : "Key yok"}`);
+  
+  // Render için önemli: Process'i alive tut
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM sinyali alındı, kapatılıyor...');
+    process.exit(0);
+  });
+});
