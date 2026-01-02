@@ -1,34 +1,47 @@
-import express from "express";
-import cors from "cors";
+import express from 'express';
+import cors from 'cors';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
+// 1. HEALTH CHECK (Render bunu kontrol eder)
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    service: 'fiyattakip-api',
+    timestamp: new Date().toISOString(),
+    port: process.env.PORT 
+  });
 });
 
-app.post("/ai/yorum", async (req, res) => {
-  try {
-    const { title, price, site } = req.body;
-
-    if (!title) {
-      return res.status(400).json({ success: false, error: "Ürün başlığı yok" });
-    }
-
-    const yorum = `
-${title} ürünü ${site || "pazar yerinde"} listelenmektedir.
-${price ? `Yaklaşık fiyat: ${price} TL` : ""}
-Genel olarak fiyat/performans açısından değerlendirilebilir.
-    `.trim();
-
-    res.json({ success: true, yorum });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, yorum: "AI yorumu alınamadı" });
+// 2. AI YORUM ENDPOINT (Basit ve çalışan)
+app.post('/ai/yorum', (req, res) => {
+  const { title, price, site } = req.body;
+  
+  // Akıllı yorumlar
+  let yorum = '';
+  const titleLower = title.toLowerCase();
+  
+  if (titleLower.includes('iphone') || titleLower.includes('telefon')) {
+    yorum = `📱 ${title} için ${price || 'fiyat bilgisi yok'}. ${site || 'Sitede'} telefon pazarında iyi konumda.`;
+  } 
+  else if (titleLower.includes('ram') || titleLower.includes('bellek')) {
+    yorum = `💾 ${title} - ${price || 'fiyat belirtilmemiş'}. ${site || 'Platformda'} bilgisayar bileşeni.`;
   }
+  else {
+    yorum = `${title} ürünü ${site || 'pazar yerinde'} listeleniyor. ${price ? `Fiyat: ${price}. ` : ''}Fiyat/performans değerlendirilebilir.`;
+  }
+  
+  res.json({ success: true, yorum });
 });
 
+// 3. PORT AYARI (Render için çok önemli!)
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log("API çalışıyor:", PORT));
+const HOST = '0.0.0.0'; // ⭐ Render bunu ister
+
+app.listen(PORT, HOST, () => {
+  console.log(`✅ BACKEND ÇALIŞIYOR: ${HOST}:${PORT}`);
+  console.log(`🌐 Health: http://${HOST}:${PORT}/health`);
+  console.log(`🚀 NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+});
