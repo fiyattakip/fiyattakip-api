@@ -1,33 +1,34 @@
 import express from "express";
 import cors from "cors";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
-});
-
+// AI YORUM - KULLANICI KEY AL
 app.post("/ai/yorum", async (req, res) => {
-  try {
-    const { title, price, site } = req.body;
-
-    if (!title) {
-      return res.status(400).json({ success: false, error: "Ürün başlığı yok" });
+  const { title, price, site, apiKey } = req.body;
+  
+  if (!title) return res.json({ success: false, error: "Ürün yok" });
+  
+  // KULLANICI KEY VARSA GEMINI KULLAN
+  if (apiKey && apiKey.startsWith("AIza")) {
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const prompt = `"${title}" ürünü hakkında 2 cümle yorum yap. ${price ? `Fiyat: ${price}. ` : ""}${site ? `Site: ${site}. ` : ""}Kısa ve Türkçe olsun.`;
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().trim();
+      return res.json({ success: true, yorum: text, source: "gemini" });
+    } catch (error) {
+      return res.json({ success: false, yorum: `Key hatası: ${error.message}` });
     }
-
-    const yorum = `
-${title} ürünü ${site || "pazar yerinde"} listelenmektedir.
-${price ? `Yaklaşık fiyat: ${price} TL` : ""}
-Genel olarak fiyat/performans açısından değerlendirilebilir.
-    `.trim();
-
-    res.json({ success: true, yorum });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, yorum: "AI yorumu alınamadı" });
   }
+  
+  // KEY YOKSA BASİT YORUM
+  const fallback = `${title} ürünü ${site || ""} listeleniyor. ${price ? `Fiyat: ${price}. ` : ""}Fiyat/performans değerlendirilebilir.`;
+  res.json({ success: true, yorum: fallback, source: "fallback" });
 });
 
 const PORT = process.env.PORT || 10000;
