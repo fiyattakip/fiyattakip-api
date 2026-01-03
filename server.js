@@ -48,6 +48,25 @@ app.post("/ai/yorum", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Kullanıcı-bazlı AI API ${PORT} portunda`);
+const HOST = '0.0.0.0';
+
+const server = app.listen(PORT, HOST, () => {
+  console.log(`✅ API ${HOST}:${PORT} çalışıyor`);
+  console.log(`🌐 Health: http://${HOST}:${PORT}/health`);
+  console.log(`🚀 NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📡 Process ID: ${process.pid}`);
 });
+
+// ⭐ RENDER İÇİN GEREKLİ: Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM sinyali alındı, kapanıyor...');
+  server.close(() => {
+    console.log('Server kapandı');
+    process.exit(0);
+  });
+});
+
+// Process'i alive tut
+setInterval(() => {
+  console.log('🫀 Heartbeat:', new Date().toISOString());
+}, 30000);
