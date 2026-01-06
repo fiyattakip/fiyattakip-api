@@ -7,11 +7,11 @@ app.use(cors());
 app.use(express.json());
 
 // ================================
-// HUGGING FACE AYARLARI (YENİ)
+// HUGGING FACE AYARLARI (KESİN)
 // ================================
 const HF_MODEL = "google/flan-t5-large";
-const HF_TIMEOUT = 20000;
-const HF_ENDPOINT = "https://router.huggingface.co/hf-inference/models";
+const HF_TIMEOUT = 25000;
+const HF_ENDPOINT = "https://router.huggingface.co/v1/models";
 
 // ================================
 // AI YORUM ENDPOINT
@@ -38,10 +38,10 @@ app.post("/ai/yorum", async (req, res) => {
     const prompt = `Ürün: ${originalQuery}\n\nBu ürün hakkında kısa, kullanıcı dostu bir alışveriş yorumu yaz. Avantajlarını belirt.`;
 
     // ================================
-    // HUGGING FACE (ROUTER) ÇAĞRISI
+    // HF ROUTER ÇAĞRISI (DOĞRU)
     // ================================
     const hfRes = await axios.post(
-      `${HF_ENDPOINT}/${HF_MODEL}`,
+      `${HF_ENDPOINT}/${HF_MODEL}:predict`,
       {
         inputs: prompt,
         parameters: {
@@ -61,7 +61,7 @@ app.post("/ai/yorum", async (req, res) => {
     );
 
     // ================================
-    // EVRENSEL HF RESPONSE OKUMA
+    // EVRENSEL RESPONSE OKUMA
     // ================================
     let aiText = "";
     const data = hfRes.data;
@@ -77,8 +77,11 @@ app.post("/ai/yorum", async (req, res) => {
         "";
     }
 
-    if (typeof data === "object" && data.generated_text) {
-      aiText = data.generated_text;
+    if (typeof data === "object") {
+      aiText =
+        data.generated_text ||
+        data.text ||
+        "";
     }
 
     aiText = aiText.replace(prompt, "").trim();
@@ -106,16 +109,14 @@ app.post("/ai/yorum", async (req, res) => {
 });
 
 // ================================
-// HEALTH CHECK
+// HEALTH
 // ================================
-app.get("/health", (_, res) => {
-  res.json({ ok: true });
-});
+app.get("/health", (_, res) => res.json({ ok: true }));
 
 // ================================
 // SERVER
 // ================================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 FiyatTakip API çalışıyor : ${PORT}`);
+  console.log("🚀 HF Router AI API running on", PORT);
 });
