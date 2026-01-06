@@ -29,29 +29,30 @@ app.post("/ai/yorum", async (req, res) => {
     }
 
     const response = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
+  "https://api.groq.com/openai/v1/chat/completions",
+  {
+    model: "groq/bileşik",
+    messages: [
       {
-        model: "llama-3.1-8b-anlik",
-        messages: [
-          {
-            role: "system",
-            content: "You are a helpful shopping assistant."
-          },
-          {
-            role: "user",
-            content: `Ürün hakkında kısa ve kullanıcı dostu bir alışveriş yorumu yaz: ${originalQuery}`
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 180
+        role: "system",
+        content: "You are a helpful shopping assistant."
       },
       {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
-        }
+        role: "user",
+        content: `Ürün hakkında kısa ve kullanıcı dostu bir alışveriş yorumu yaz: ${originalQuery}`
       }
-    );
+    ],
+    temperature: 0.7,
+    max_tokens: 180
+  },
+  {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    }
+  }
+);
+
 
     const aiText = response.data?.choices?.[0]?.message?.content?.trim();
 
