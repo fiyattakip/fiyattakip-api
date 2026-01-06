@@ -1,3 +1,14 @@
+import express from "express";
+import cors from "cors";
+import axios from "axios";
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// =============================
+// AI YORUM ENDPOINT (GROQ)
+// =============================
 app.post("/ai/yorum", async (req, res) => {
   try {
     const { originalQuery } = req.body;
@@ -17,7 +28,6 @@ app.post("/ai/yorum", async (req, res) => {
       });
     }
 
-    // 🔥 İŞTE SENİN SORDUĞUN KOD TAM BURAYA
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
@@ -42,7 +52,6 @@ app.post("/ai/yorum", async (req, res) => {
         }
       }
     );
-    // 🔥 KOD BURAYA KADAR
 
     const aiText = response.data?.choices?.[0]?.message?.content?.trim();
 
@@ -55,7 +64,7 @@ app.post("/ai/yorum", async (req, res) => {
 
     return res.json({
       success: true,
-      yorum: "🤖 Ürün değerlendirilebilir ancak detay üretilemedi."
+      yorum: "🤖 Ürün değerlendirilebilir ancak detaylı analiz üretilemedi."
     });
 
   } catch (error) {
@@ -65,4 +74,19 @@ app.post("/ai/yorum", async (req, res) => {
       yorum: "🤖 AI servisi şu anda cevap veremiyor."
     });
   }
+});
+
+// =============================
+// HEALTH CHECK
+// =============================
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+// =============================
+// SERVER START
+// =============================
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log("🚀 Groq API çalışıyor. Port:", PORT);
 });
