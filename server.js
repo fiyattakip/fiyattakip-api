@@ -1,13 +1,3 @@
-import express from "express";
-import cors from "cors";
-import axios from "axios";
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
-
 app.post("/ai/yorum", async (req, res) => {
   try {
     const { originalQuery } = req.body;
@@ -27,10 +17,11 @@ app.post("/ai/yorum", async (req, res) => {
       });
     }
 
+    // 🔥 İŞTE SENİN SORDUĞUN KOD TAM BURAYA
     const response = await axios.post(
-      GROQ_ENDPOINT,
+      "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama3-8b-8192",
+        model: "llama-3.1-8b-anlik",
         messages: [
           {
             role: "system",
@@ -51,9 +42,9 @@ app.post("/ai/yorum", async (req, res) => {
         }
       }
     );
+    // 🔥 KOD BURAYA KADAR
 
-    const aiText =
-      response.data?.choices?.[0]?.message?.content?.trim();
+    const aiText = response.data?.choices?.[0]?.message?.content?.trim();
 
     if (aiText) {
       return res.json({
@@ -64,7 +55,7 @@ app.post("/ai/yorum", async (req, res) => {
 
     return res.json({
       success: true,
-      yorum: "🤖 Ürün değerlendirilebilir ancak detaylı bilgi alınamadı."
+      yorum: "🤖 Ürün değerlendirilebilir ancak detay üretilemedi."
     });
 
   } catch (error) {
@@ -74,11 +65,4 @@ app.post("/ai/yorum", async (req, res) => {
       yorum: "🤖 AI servisi şu anda cevap veremiyor."
     });
   }
-});
-
-app.get("/health", (_, res) => res.json({ ok: true }));
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log("🚀 Groq AI API çalışıyor:", PORT);
 });
