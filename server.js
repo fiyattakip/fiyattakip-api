@@ -7,7 +7,7 @@ app.use(cors());
 app.use(express.json());
 
 // ========== HUGGING FACE AYARLARI ==========
-const HF_MODEL = "facebook/bart-large-mnli"; // KESİN ÇALIŞAN MODEL
+const HF_MODEL = "google/flan-t5-large"; // KESİN ÇALIŞAN MODEL
 const HF_TIMEOUT = 15000; // 15 saniye
 
 // ========== AI YORUM ENDPOINT ==========
