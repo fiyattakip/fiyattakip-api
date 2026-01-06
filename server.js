@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const HF_MODEL = "google/flan-t5-large";
+const HF_MODEL = "HuggingFaceH4/zephyr-7b-beta";
 
 app.post("/ai/yorum", async (req, res) => {
   try {
