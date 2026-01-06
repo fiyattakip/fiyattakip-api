@@ -7,10 +7,11 @@ app.use(cors());
 app.use(express.json());
 
 // ================================
-// HUGGING FACE AYARLARI
+// HUGGING FACE AYARLARI (YENİ)
 // ================================
-const HF_MODEL = "google/flan-t5-large"; 
+const HF_MODEL = "google/flan-t5-large";
 const HF_TIMEOUT = 20000;
+const HF_ENDPOINT = "https://router.huggingface.co/hf-inference/models";
 
 // ================================
 // AI YORUM ENDPOINT
@@ -37,10 +38,10 @@ app.post("/ai/yorum", async (req, res) => {
     const prompt = `Ürün: ${originalQuery}\n\nBu ürün hakkında kısa, kullanıcı dostu bir alışveriş yorumu yaz. Avantajlarını belirt.`;
 
     // ================================
-    // HUGGING FACE ÇAĞRISI
+    // HUGGING FACE (ROUTER) ÇAĞRISI
     // ================================
     const hfRes = await axios.post(
-      `https://api-inference.huggingface.co/models/${HF_MODEL}`,
+      `${HF_ENDPOINT}/${HF_MODEL}`,
       {
         inputs: prompt,
         parameters: {
@@ -59,24 +60,16 @@ app.post("/ai/yorum", async (req, res) => {
       }
     );
 
-    // 🔴 DEBUG – HF RAW RESPONSE
-return res.json({
-  success: true,
-  hf_raw: hfRes.data
-});
-
     // ================================
     // EVRENSEL HF RESPONSE OKUMA
     // ================================
     let aiText = "";
     const data = hfRes.data;
 
-    // HF string dönerse
     if (typeof data === "string") {
       aiText = data;
     }
 
-    // HF array dönerse
     if (Array.isArray(data) && data[0]) {
       aiText =
         data[0].generated_text ||
@@ -84,17 +77,12 @@ return res.json({
         "";
     }
 
-    // HF object dönerse
     if (typeof data === "object" && data.generated_text) {
       aiText = data.generated_text;
     }
 
-    // Prompt'u temizle
     aiText = aiText.replace(prompt, "").trim();
 
-    // ================================
-    // BAŞARILI MI?
-    // ================================
     if (aiText.length > 5) {
       return res.json({
         success: true,
@@ -102,7 +90,6 @@ return res.json({
       });
     }
 
-    // HF cevap verdi ama boşsa
     return res.json({
       success: true,
       yorum: "🤖 Ürün teknik özellikleri ve kullanım amacı açısından değerlendirilebilir."
