@@ -59,6 +59,12 @@ app.post("/ai/yorum", async (req, res) => {
       }
     );
 
+    // 🔴 DEBUG – HF RAW RESPONSE
+return res.json({
+  success: true,
+  hf_raw: hfRes.data
+});
+
     // ================================
     // EVRENSEL HF RESPONSE OKUMA
     // ================================
