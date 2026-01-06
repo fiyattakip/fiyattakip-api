@@ -21,7 +21,7 @@ app.post("/ai/yorum", async (req, res) => {
 
     const HF_KEY = process.env.HUGGINGFACE_API_KEY;
 
-    const prompt = `${originalQuery} ürünü hakkında kısa, samimi bir alışveriş yorumu yaz.`;
+    const prompt = `Ürün: ${originalQuery}\n\nBu ürün hakkında kısa, kullanıcı dostu bir alışveriş yorumu yaz. Avantajlarını belirt.`;
 
     const hfRes = await axios.post(
       `https://api-inference.huggingface.co/models/${HF_MODEL}`,
