@@ -6,59 +6,79 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const HF_MODEL_URL =
-  "https://api-inference.huggingface.co/models/google/flan-t5-large";
+const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
 app.post("/ai/yorum", async (req, res) => {
   try {
     const { originalQuery } = req.body;
+
     if (!originalQuery) {
-      return res.json({ success: true, yorum: "🤖 Ürün adı bulunamadı." });
+      return res.json({
+        success: true,
+        yorum: "🤖 Ürün adı bulunamadı."
+      });
     }
 
-    const HF_KEY = process.env.HUGGINGFACE_API_KEY;
-    if (!HF_KEY) {
-      return res.json({ success: true, yorum: "🤖 AI anahtarı yok." });
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      return res.json({
+        success: true,
+        yorum: "🤖 Groq API anahtarı tanımlı değil."
+      });
     }
 
-    const prompt = `Ürün: ${originalQuery}\nKısa ve kullanıcı dostu alışveriş yorumu yaz.`;
-
-    const hfRes = await axios.post(
-      HF_MODEL_URL,
-      { inputs: prompt },
+    const response = await axios.post(
+      GROQ_ENDPOINT,
+      {
+        model: "llama3-8b-8192",
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful shopping assistant."
+          },
+          {
+            role: "user",
+            content: `Ürün hakkında kısa ve kullanıcı dostu bir alışveriş yorumu yaz: ${originalQuery}`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 180
+      },
       {
         headers: {
-          Authorization: `Bearer ${HF_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json"
-        },
-        timeout: 30000
+        }
       }
     );
 
-    let aiText = "";
+    const aiText =
+      response.data?.choices?.[0]?.message?.content?.trim();
 
-    if (Array.isArray(hfRes.data) && hfRes.data[0]?.generated_text) {
-      aiText = hfRes.data[0].generated_text
-        .replace(prompt, "")
-        .trim();
-    }
-
-    if (aiText.length > 5) {
-      return res.json({ success: true, yorum: aiText });
+    if (aiText) {
+      return res.json({
+        success: true,
+        yorum: aiText
+      });
     }
 
     return res.json({
       success: true,
-      yorum: "🤖 Ürün değerlendirilebilir, fiyat/performans açısından incelenmeli."
+      yorum: "🤖 Ürün değerlendirilebilir ancak detaylı bilgi alınamadı."
     });
 
-  } catch (err) {
-    console.error("HF ERROR:", err.response?.data || err.message);
+  } catch (error) {
+    console.error("GROQ ERROR:", error.response?.data || error.message);
     return res.json({
       success: true,
-      yorum: "🤖 AI şu anda cevap veremiyor."
+      yorum: "🤖 AI servisi şu anda cevap veremiyor."
     });
   }
 });
 
-app.listen(process.env.PORT || 10000);
+app.get("/health", (_, res) => res.json({ ok: true }));
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log("🚀 Groq AI API çalışıyor:", PORT);
+});
