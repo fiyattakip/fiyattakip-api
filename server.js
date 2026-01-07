@@ -22,6 +22,7 @@ app.get('/health', (req, res) => {
 });
 
 // 2. LİNKTEN BASİT FİYAT ÇEKME (cheerio olmadan)
+// ========== LİNKTEN GERÇEK FİYAT ÇEKME (cheerio ile) ==========
 app.post('/fiyat-cek-link', async (req, res) => {
   try {
     const { url } = req.body;
@@ -33,62 +34,143 @@ app.post('/fiyat-cek-link', async (req, res) => {
       });
     }
     
-    console.log(`🔗 Link'ten fiyat çekiliyor: ${url}`);
+    console.log(`🔗 Yasal fiyat çekme: ${url}`);
     
-    // Site adını çıkar
-    let site = "Link";
-    try {
-      const urlObj = new URL(url);
-      const hostname = urlObj.hostname;
-      
-      if (hostname.includes('trendyol') || hostname.includes('ty.gl')) {
-        site = 'Trendyol';
-      } else if (hostname.includes('hepsiburada')) {
-        site = 'Hepsiburada';
-      } else if (hostname.includes('n11.com')) {
-        site = 'N11';
-      } else if (hostname.includes('amazon')) {
-        site = 'Amazon';
-      } else if (hostname.includes('pazarama')) {
-        site = 'Pazarama';
-      } else if (hostname.includes('ciceksepeti')) {
-        site = 'ÇiçekSepeti';
-      } else {
-        site = hostname.replace('www.', '').split('.')[0];
-        site = site.charAt(0).toUpperCase() + site.slice(1);
-      }
-    } catch(e) {
-      console.log("URL parse hatası:", e);
-    }
-    
-    // Mock fiyat üret (gerçek uygulamada bu kısım cheerio ile çekilecek)
-    const mockPrices = {
-      'Trendyol': '₺1.299,99',
-      'Hepsiburada': '₺1.349,99', 
-      'N11': '₺1.279,99',
-      'Amazon': '₺1.399,99',
-      'Pazarama': '₺1.249,99',
-      'ÇiçekSepeti': '₺1.319,99'
+    // 1. User-Agent ile kendimizi tanıtalım (etik)
+    const headers = {
+      'User-Agent': 'FiyatTakipBot/1.0 (Price Comparison Service; +https://fiyattakip-api.onrender.com)',
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
+      'Referer': 'https://fiyattakip-api.onrender.com',
+      'Connection': 'keep-alive'
     };
     
+    // 2. Sayfayı çek (yavaş ve nazikçe)
+    const response = await fetch(url, {
+      headers,
+      timeout: 10000 // 10 saniye timeout
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    
+    // 3. Siteye özel SELECTOR'lar
+    let title = '';
+    let price = '';
+    
+    // TRENDYOL
+    if (url.includes('trendyol.com')) {
+      title = $('h1.pr-new-br').text().trim() || 
+              $('[data-drroot="product-title"]').text().trim();
+      
+      price = $('[data-bind="markupText: currentPrice"]').text().trim() ||
+              $('.prc-dsc').text().trim() ||
+              $('.product-price-container').find('span').last().text().trim();
+    }
+    
+    // HEPSIBURADA  
+    else if (url.includes('hepsiburada.com')) {
+      title = $('h1[data-bind="text: productName"]').text().trim() ||
+              $('h1.product-name').text().trim();
+      
+      price = $('[data-bind="text: price"]').text().trim() ||
+              $('[itemprop="price"]').attr('content') ||
+              $('.price').text().trim();
+    }
+    
+    // n11
+    else if (url.includes('n11.com')) {
+      title = $('h1.productName').text().trim() ||
+              $('h1.proName').text().trim();
+      
+      price = $('.newPrice').text().trim() ||
+              $('ins').text().trim() ||
+              $('.unf-p-summary-price').text().trim();
+    }
+    
+    // AMAZON
+    else if (url.includes('amazon.com.tr')) {
+      title = $('#productTitle').text().trim();
+      
+      price = $('.a-price-whole').first().text().trim() ||
+              $('.priceBlockBuyingPriceString').text().trim();
+      
+      if (price) price = '₺' + price.replace('.', ',');
+    }
+    
+    // PAZARAMA
+    else if (url.includes('pazarama.com')) {
+      title = $('h1.product-title').text().trim();
+      price = $('.product-price').text().trim();
+    }
+    
+    // ÇİÇEKSEPETİ
+    else if (url.includes('ciceksepeti.com')) {
+      title = $('h1.product-name').text().trim();
+      price = $('.price').text().trim();
+    }
+    
+    // 4. Temizleme
+    title = title.substring(0, 100); // Uzunluk sınırı
+    price = price ? price.replace(/\s+/g, '').trim() : '';
+    
+    // 5. Fallback: Meta etiketler
+    if (!price || price === '') {
+      price = $('meta[property="product:price:amount"]').attr('content') ||
+              $('meta[itemprop="price"]').attr('content') ||
+              $('meta[name="twitter:data1"]').attr('content');
+      
+      if (price) price = '₺' + price;
+    }
+    
+    // 6. Site adını al
+    const getSiteName = (url) => {
+      try {
+        const urlObj = new URL(url);
+        const hostname = urlObj.hostname;
+        
+        if (hostname.includes('trendyol')) return 'Trendyol';
+        if (hostname.includes('hepsiburada')) return 'Hepsiburada';
+        if (hostname.includes('n11.com')) return 'n11';
+        if (hostname.includes('amazon')) return 'Amazon';
+        if (hostname.includes('pazarama')) return 'Pazarama';
+        if (hostname.includes('ciceksepeti')) return 'ÇiçekSepeti';
+        
+        return hostname.replace('www.', '').split('.')[0].toUpperCase();
+      } catch {
+        return 'Bilinmeyen';
+      }
+    };
+    
+    const siteName = getSiteName(url);
+    
+    // 7. Yanıt
     res.json({
       success: true,
-      urun: `${site} Ürünü`,
-      fiyat: mockPrices[site] || '₺???',
-      site: site,
+      urun: title || "Ürün",
+      fiyat: price || "Fiyat bulunamadı",
+      site: siteName,
       link: url,
-      note: 'Mock fiyat - cheerio kurulumu gerekli'
+      timestamp: new Date().toISOString(),
+      note: price ? 'Gerçek fiyat' : 'Fiyat çekilemedi'
     });
     
   } catch (error) {
-    console.error('❌ Link fiyat hatası:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Sunucu hatası',
-      urun: 'Ürün',
-      fiyat: 'Fiyat bulunamadı',
-      site: 'Bilinmeyen',
-      link: req.body.url
+    console.error('❌ Fiyat çekme hatası:', error.message);
+    
+    // Hata durumunda
+    res.json({
+      success: false,
+      error: `Fiyat çekilemedi: ${error.message}`,
+      urun: "Ürün",
+      fiyat: "₺???",
+      site: "Bilinmeyen",
+      link: req.body.url,
+      note: 'API hatası'
     });
   }
 });
