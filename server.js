@@ -1,8 +1,6 @@
-// server.js - GÜNCELLENMİŞ VERSİYON
+// server.js - BASİT VERSİYON (cheerio olmadan)
 import express from 'express';
 import cors from 'cors';
-import axios from 'axios';
-import * as cheerio from 'cheerio';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -11,183 +9,19 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// ========== USER AGENT ROTASYONU ==========
-const userAgents = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1'
-];
-
-function getRandomUserAgent() {
-  return userAgents[Math.floor(Math.random() * userAgents.length)];
-}
-
-// ========== FIYAT ÇEKME SİSTEMİ ==========
-async function fetchProductPrice(url) {
-  console.log(`📦 Fiyat çekiliyor: ${url}`);
-  
-  try {
-    const headers = {
-      'User-Agent': getRandomUserAgent(),
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Connection': 'keep-alive',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1',
-      'Cache-Control': 'max-age=0'
-    };
-
-    const response = await axios.get(url, { 
-      headers, 
-      timeout: 10000,
-      validateStatus: function (status) {
-        return status >= 200 && status < 400;
-      }
-    });
-
-    const $ = cheerio.load(response.data);
-    
-    // ========== TRENDYOL (ty.gl) ==========
-    if (url.includes('ty.gl') || url.includes('trendyol.com')) {
-      // Trendyol ürün sayfası
-      const productName = $('h1.pr-new-br').text().trim() || 
-                         $('h1[data-testid="productDetailBrandName"]').text().trim() ||
-                         $('h1.pr-in-nm').text().trim();
-      
-      // Fiyatı bul
-      let price = '';
-      
-      // Trendyol fiyat seçicileri
-      const priceSelectors = [
-        'span.prc-dsc',
-        'span.product-price-container span',
-        'div.product-price-container',
-        'span[class*="price"]',
-        'div[class*="price"]',
-        'span.prc-org'
-      ];
-      
-      for (const selector of priceSelectors) {
-        const priceText = $(selector).first().text().trim();
-        if (priceText && priceText.includes('TL') || priceText.includes('₺')) {
-          price = priceText.replace(/\s+/g, ' ');
-          break;
-        }
-      }
-      
-      return {
-        success: true,
-        urun: productName || 'Trendyol Ürünü',
-        fiyat: price || 'Fiyat bulunamadı',
-        site: 'Trendyol',
-        link: url
-      };
-    }
-    
-    // ========== HEPSİBURADA ==========
-    else if (url.includes('hepsiburada.com')) {
-      const productName = $('h1.product-name').text().trim() || 
-                         $('h1[data-testid="productDetailBrandName"]').text().trim();
-      
-      let price = $('span[data-bind="markupText: currentPriceBeforePoint"]').text().trim() ||
-                  $('span[data-testid="price"]').text().trim();
-      
-      if (!price) {
-        const priceData = $('script[type="application/ld+json"]').text();
-        const priceMatch = priceData.match(/"price":"([^"]+)"/);
-        if (priceMatch) price = priceMatch[1] + ' TL';
-      }
-      
-      return {
-        success: true,
-        urun: productName || 'Hepsiburada Ürünü',
-        fiyat: price || 'Fiyat bulunamadı',
-        site: 'Hepsiburada',
-        link: url
-      };
-    }
-    
-    // ========== N11 ==========
-    else if (url.includes('n11.com')) {
-      const productName = $('h1.productName').text().trim() || 
-                         $('h1[itemprop="name"]').text().trim();
-      
-      const price = $('ins').text().trim() || 
-                   $('span.newPrice').text().trim() ||
-                   $('meta[property="product:price:amount"]').attr('content');
-      
-      return {
-        success: true,
-        urun: productName || 'N11 Ürünü',
-        fiyat: price ? (price + ' TL') : 'Fiyat bulunamadı',
-        site: 'N11',
-        link: url
-      };
-    }
-    
-    // ========== AMAZON ==========
-    else if (url.includes('amazon.com.tr')) {
-      const productName = $('#productTitle').text().trim() || 
-                         $('h1.a-size-large').text().trim();
-      
-      const price = $('span.a-price-whole').first().text().trim() ||
-                   $('span[data-a-color="price"] span').first().text().trim();
-      
-      return {
-        success: true,
-        urun: productName || 'Amazon Ürünü',
-        fiyat: price ? (price + ' TL') : 'Fiyat bulunamadı',
-        site: 'Amazon',
-        link: url
-      };
-    }
-    
-    // ========== DİĞER SİTELER ==========
-    else {
-      // Genel fiyat arama
-      const productName = $('h1').first().text().trim() ||
-                         $('title').text().split('|')[0].trim();
-      
-      // Fiyat regex ile ara
-      const pageText = $('body').text();
-      const priceRegex = /(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)\s*TL/g;
-      const priceMatch = pageText.match(priceRegex);
-      
-      return {
-        success: true,
-        urun: productName || 'Ürün',
-        fiyat: priceMatch ? priceMatch[0] : 'Fiyat bulunamadı',
-        site: new URL(url).hostname.replace('www.', ''),
-        link: url
-      };
-    }
-    
-  } catch (error) {
-    console.error('❌ Fiyat çekme hatası:', error.message);
-    return {
-      success: false,
-      error: `Fiyat çekilemedi: ${error.message}`,
-      urun: 'Ürün',
-      fiyat: 'Fiyat bulunamadı',
-      site: 'Bilinmeyen',
-      link: url
-    };
-  }
-}
-
 // ========== API ENDPOINT'LERİ ==========
 
 // 1. SAĞLIK KONTROLÜ
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'FiyatTakip API çalışıyor' });
+  res.json({ 
+    status: 'OK', 
+    message: 'FiyatTakip API çalışıyor',
+    version: '2.0.0',
+    features: ['fiyat-cek', 'ai-yorum', 'ai-compare', 'link-fiyat']
+  });
 });
 
-// 2. FIYAT ÇEKME (Link'ten)
+// 2. LİNKTEN BASİT FİYAT ÇEKME (cheerio olmadan)
 app.post('/fiyat-cek-link', async (req, res) => {
   try {
     const { url } = req.body;
@@ -201,20 +35,65 @@ app.post('/fiyat-cek-link', async (req, res) => {
     
     console.log(`🔗 Link'ten fiyat çekiliyor: ${url}`);
     
-    const result = await fetchProductPrice(url);
+    // Site adını çıkar
+    let site = "Link";
+    try {
+      const urlObj = new URL(url);
+      const hostname = urlObj.hostname;
+      
+      if (hostname.includes('trendyol') || hostname.includes('ty.gl')) {
+        site = 'Trendyol';
+      } else if (hostname.includes('hepsiburada')) {
+        site = 'Hepsiburada';
+      } else if (hostname.includes('n11.com')) {
+        site = 'N11';
+      } else if (hostname.includes('amazon')) {
+        site = 'Amazon';
+      } else if (hostname.includes('pazarama')) {
+        site = 'Pazarama';
+      } else if (hostname.includes('ciceksepeti')) {
+        site = 'ÇiçekSepeti';
+      } else {
+        site = hostname.replace('www.', '').split('.')[0];
+        site = site.charAt(0).toUpperCase() + site.slice(1);
+      }
+    } catch(e) {
+      console.log("URL parse hatası:", e);
+    }
     
-    res.json(result);
+    // Mock fiyat üret (gerçek uygulamada bu kısım cheerio ile çekilecek)
+    const mockPrices = {
+      'Trendyol': '₺1.299,99',
+      'Hepsiburada': '₺1.349,99', 
+      'N11': '₺1.279,99',
+      'Amazon': '₺1.399,99',
+      'Pazarama': '₺1.249,99',
+      'ÇiçekSepeti': '₺1.319,99'
+    };
+    
+    res.json({
+      success: true,
+      urun: `${site} Ürünü`,
+      fiyat: mockPrices[site] || '₺???',
+      site: site,
+      link: url,
+      note: 'Mock fiyat - cheerio kurulumu gerekli'
+    });
     
   } catch (error) {
     console.error('❌ Link fiyat hatası:', error);
     res.status(500).json({ 
       success: false, 
-      error: 'Sunucu hatası' 
+      error: 'Sunucu hatası',
+      urun: 'Ürün',
+      fiyat: 'Fiyat bulunamadı',
+      site: 'Bilinmeyen',
+      link: req.body.url
     });
   }
 });
 
-// 3. ARAMA İLE FIYAT ÇEKME (Eski sistem - korundu)
+// 3. ARAMA İLE FIYAT ÇEKME
 app.post('/fiyat-cek', async (req, res) => {
   try {
     const { urun, page = 1, sort = 'asc' } = req.body;
@@ -228,25 +107,53 @@ app.post('/fiyat-cek', async (req, res) => {
     
     console.log(`🔍 Arama yapılıyor: ${urun} (Sayfa: ${page})`);
     
-    // Mock data - gerçek API'ye bağlayabilirsin
+    // Mock ürün verileri
     const mockProducts = [
       {
-        urun: `${urun} - En Ucuz`,
+        urun: `${urun} - En Ucuz Seçenek`,
         fiyat: '₺1.299,99',
         site: 'Trendyol',
-        link: `https://www.trendyol.com/arama?q=${encodeURIComponent(urun)}`
+        link: `https://www.trendyol.com/sr?q=${encodeURIComponent(urun)}`
       },
       {
-        urun: `${urun} - Orta Seçenek`,
+        urun: `${urun} - Orta Seviye`,
         fiyat: '₺1.499,99',
         site: 'Hepsiburada',
         link: `https://www.hepsiburada.com/ara?q=${encodeURIComponent(urun)}`
+      },
+      {
+        urun: `${urun} - Popüler`,
+        fiyat: '₺1.399,99',
+        site: 'n11',
+        link: `https://www.n11.com/arama?q=${encodeURIComponent(urun)}`
+      },
+      {
+        urun: `${urun} - Premium`,
+        fiyat: '₺1.699,99',
+        site: 'Amazon',
+        link: `https://www.amazon.com.tr/s?k=${encodeURIComponent(urun)}`
       }
     ];
     
+    // Sıralama
+    let sortedProducts = [...mockProducts];
+    if (sort === 'asc') {
+      sortedProducts.sort((a, b) => {
+        const priceA = parseFloat(a.fiyat.replace(/[^\d.,]/g, '').replace('.', '').replace(',', '.'));
+        const priceB = parseFloat(b.fiyat.replace(/[^\d.,]/g, '').replace('.', '').replace(',', '.'));
+        return priceA - priceB;
+      });
+    } else if (sort === 'desc') {
+      sortedProducts.sort((a, b) => {
+        const priceA = parseFloat(a.fiyat.replace(/[^\d.,]/g, '').replace('.', '').replace(',', '.'));
+        const priceB = parseFloat(b.fiyat.replace(/[^\d.,]/g, '').replace('.', '').replace(',', '.'));
+        return priceB - priceA;
+      });
+    }
+    
     res.json({
       success: true,
-      fiyatlar: mockProducts,
+      fiyatlar: sortedProducts,
       toplamUrun: mockProducts.length,
       sayfa: page,
       toplamSayfa: 1,
@@ -263,75 +170,49 @@ app.post('/fiyat-cek', async (req, res) => {
   }
 });
 
-// 4. AI YORUM SİSTEMİ (Geliştirilmiş)
+// 4. AI YORUM SİSTEMİ
 app.post('/ai/yorum', async (req, res) => {
   try {
     const { title, price, site, originalQuery } = req.body;
     
-    console.log('📥 AI isteği:', { title, price, site, originalQuery });
+    console.log('📥 AI isteği alındı:', { 
+      query: originalQuery || title,
+      site: site,
+      price: price 
+    });
     
-    // Hugging Face API veya fallback
-    const HF_API_KEY = process.env.HF_API_KEY || '';
-    const HF_MODEL = 'google/flan-t5-large';
-    
-    if (HF_API_KEY && HF_API_KEY !== 'YOK') {
-      try {
-        const response = await axios.post(
-          `https://api-inference.huggingface.co/models/${HF_MODEL}`,
-          {
-            inputs: `Ürün analizi yap: ${originalQuery || title}. Site: ${site}. Fiyat: ${price}. Bu ürün hakkında kısa bir değerlendirme yap.`,
-            parameters: {
-              max_length: 150,
-              temperature: 0.7
-            }
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${HF_API_KEY}`,
-              'Content-Type': 'application/json'
-            }
-          }
-        );
-        
-        const aiResponse = response.data[0]?.generated_text || 'AI analiz ediyor...';
-        
-        return res.json({
-          success: true,
-          yorum: aiResponse,
-          urun: originalQuery || title,
-          fiyat: price,
-          site: site
-        });
-        
-      } catch (hfError) {
-        console.log('⚠️ HF hatası, fallback kullanılıyor:', hfError.message);
-      }
-    }
-    
-    // AKILLI FALLBACK SİSTEMİ
-    const fallbackResponses = {
-      'iphone': 'iPhone modelleri genellikle yüksek performans ve kaliteli kamera sistemleri sunar. Fiyat/performans oranı değerlendirilmeli.',
-      'telefon': 'Telefon seçerken işlemci, RAM, kamera ve pil ömrüne dikkat edin. Fiyat segmentine göre değerlendirme yapın.',
-      'laptop': 'Laptop alırken işlemci nesli, RAM miktarı, ekran kalitesi ve taşınabilirlik önemli faktörlerdir.',
-      'televizyon': 'TV seçiminde ekran boyutu, çözünürlük (4K/8K), HDR desteği ve akıllı TV özellikleri önemlidir.',
-      'tablet': 'Tabletlerde ekran kalitesi, işlemci gücü, pil ömrü ve kalem desteği dikkate alınmalıdır.'
-    };
-    
-    let aiYorum = 'Bu ürün teknik özellikleri ve kullanıcı deneyimleri ışığında değerlendirilebilir. ';
-    
-    // Anahtar kelimeye göre özelleştirilmiş yorum
+    // Akıllı fallback sistemi
     const query = (originalQuery || title || '').toLowerCase();
-    for (const [keyword, response] of Object.entries(fallbackResponses)) {
-      if (query.includes(keyword)) {
-        aiYorum = response;
-        break;
-      }
+    let aiYorum = '';
+    
+    // Ürün tipine göre özelleştirilmiş yorumlar
+    if (query.includes('iphone') || query.includes('telefon')) {
+      aiYorum = `📱 ${site}'daki bu telefon modeli ${price} fiyatıyla değerlendirilebilir. İşlemci gücü, kamera kalitesi ve pil ömrü önemli faktörlerdir.`;
+    } 
+    else if (query.includes('laptop') || query.includes('notebook')) {
+      aiYorum = `💻 ${site}'daki bu laptop ${price} fiyat segmentinde. İşlemci nesli, RAM miktarı ve ekran kalitesi performansı etkiler.`;
+    }
+    else if (query.includes('tablet') || query.includes('ipad')) {
+      aiYorum = `📟 ${site}'daki tablet ${price} fiyatıyla. Ekran boyutu, kalem desteği ve pil ömrü dikkate alınmalı.`;
+    }
+    else if (query.includes('televizyon') || query.includes('tv')) {
+      aiYorum = `📺 ${site}'daki TV ${price} fiyatında. Ekran boyutu, çözünürlük ve akıllı TV özellikleri önemlidir.`;
+    }
+    else if (query.includes('kulaklık') || query.includes('airpod')) {
+      aiYorum = `🎧 ${site}'daki kulaklık ${price} fiyatıyla. Ses kalitesi, gürültü önleme ve pil ömrü değerlendirilmeli.`;
+    }
+    else {
+      aiYorum = `🛒 ${site}'daki "${originalQuery || title}" ürünü ${price} fiyatıyla pazar ortalamasında. Teknik özellikler ve kullanıcı yorumları incelenmeli.`;
     }
     
-    // Fiyat bazlı ek yorum
+    // Fiyat ek bilgisi
     if (price && price !== 'Fiyat bilgisi yok') {
-      if (price.includes('₺') || price.includes('TL')) {
-        aiYorum += ' Fiyat segmentine göre değerlendirildiğinde makul bir seçenek olabilir.';
+      if (price.includes('₺1.') || price.includes('₺2.')) {
+        aiYorum += ' Orta segment bir ürün olarak değerlendirilebilir.';
+      } else if (price.includes('₺3.') || price.includes('₺4.')) {
+        aiYorum += ' Premium segmentte yer alıyor.';
+      } else if (price.includes('₺0.') || price.includes('₺500')) {
+        aiYorum += ' Ekonomik bir seçenek.';
       }
     }
     
@@ -341,7 +222,7 @@ app.post('/ai/yorum', async (req, res) => {
       urun: originalQuery || title,
       fiyat: price,
       site: site,
-      note: HF_API_KEY ? 'HF API aktif' : 'Fallback AI kullanılıyor'
+      note: 'Akıllı fallback AI kullanılıyor'
     });
     
   } catch (error) {
@@ -349,7 +230,7 @@ app.post('/ai/yorum', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'AI servisi geçici olarak kullanılamıyor',
-      yorum: `${req.body.originalQuery || req.body.title} ürünü ${req.body.site || 'pazar yerinde'} incelendi. Fiyat: ${req.body.price || 'bilgi yok'}. Teknik özellikler değerlendirilebilir.`
+      yorum: `${req.body.originalQuery || req.body.title} ürünü ${req.body.site || 'pazar yerinde'} incelendi. Fiyat: ${req.body.price || 'bilgi yok'}.`
     });
   }
 });
@@ -398,6 +279,9 @@ app.post('/ai/compare', async (req, res) => {
       return priceNum === minPrice;
     });
     
+    // Fiyat farkı yüzdesi
+    const priceDiffPercent = maxPrice > 0 ? ((maxPrice - minPrice) / maxPrice * 100).toFixed(1) : 0;
+    
     // AI analizi
     const analysis = `
 🔍 **${products.length} Ürün Karşılaştırma Analizi**
@@ -405,21 +289,23 @@ app.post('/ai/compare', async (req, res) => {
 📊 **Fiyat Analizi:**
 • En düşük fiyat: ₺${minPrice.toLocaleString('tr-TR')} (${cheapestProduct?.site || ''})
 • En yüksek fiyat: ₺${maxPrice.toLocaleString('tr-TR')}
+• Fiyat farkı: %${priceDiffPercent}
 • Ortalama fiyat: ₺${avgPrice.toLocaleString('tr-TR')}
 
-⭐ **Değerlendirme:**
+⭐ **Ürün Değerlendirmesi:**
 ${products.map((p, i) => `• ${p.site}: ${p.price || 'Fiyat bilgisi yok'} - ${p.title?.substring(0, 30)}...`).join('\n')}
 
 💡 **Öneriler:**
-${minPrice > 0 ? `1. Bütçe dostu seçenek: ${cheapestProduct?.site || ''} (₺${minPrice.toLocaleString('tr-TR')})` : '1. Fiyat karşılaştırması yapılamadı'}
-2. Marka güvenilirliği ve garanti şartlarını kontrol edin
-3. Kullanıcı yorumlarını ve puanlarını inceleyin
-4. Teslimat süreleri ve ücretlerini karşılaştırın
+${minPrice > 0 ? `1. 🏆 Bütçe dostu: ${cheapestProduct?.site || ''} (₺${minPrice.toLocaleString('tr-TR')})` : '1. Fiyat karşılaştırması yapılamadı'}
+2. ✅ Marka güvenilirliğini kontrol edin
+3. ⭐ Kullanıcı yorumlarını ve puanlarını inceleyin
+4. 🚚 Teslimat süreleri ve ücretlerini karşılaştırın
+5. 🔄 Garanti ve iade şartlarını okuyun
     `.trim();
     
     const recommendation = cheapestProduct ? 
-      `🏆 **Önerimiz:** ${cheapestProduct.site} üzerindeki ürün fiyat/performans açısından daha avantajlı görünüyor.` :
-      '🏆 Tüm ürünler benzer özellikler sunuyor. Bütçenize en uygun olanı seçebilirsiniz.';
+      `**Önerimiz:** ${cheapestProduct.site} üzerindeki ürün fiyat/performans açısından daha avantajlı görünüyor. %${priceDiffPercent} daha uygun fiyatlı.` :
+      'Tüm ürünler benzer özellikler sunuyor. Bütçenize ve ihtiyaçlarınıza en uygun olanı seçebilirsiniz.';
     
     res.json({
       success: true,
@@ -429,7 +315,8 @@ ${minPrice > 0 ? `1. Bütçe dostu seçenek: ${cheapestProduct?.site || ''} (₺
         urunSayisi: products.length,
         enUcuzFiyat: `₺${minPrice.toLocaleString('tr-TR')}`,
         enPahaliFiyat: `₺${maxPrice.toLocaleString('tr-TR')}`,
-        ortalamaFiyat: `₺${avgPrice.toLocaleString('tr-TR')}`
+        ortalamaFiyat: `₺${avgPrice.toLocaleString('tr-TR')}`,
+        fiyatFarki: `%${priceDiffPercent}`
       }
     });
     
@@ -449,15 +336,15 @@ app.post('/kamera-ai', async (req, res) => {
   try {
     const { image } = req.body;
     
-    // Basit görsel analiz (gerçekte TensorFlow.js veya benzeri kullanılır)
-    const products = ['telefon', 'laptop', 'kulaklık', 'tablet', 'akıllı saat'];
+    // Basit görsel analiz
+    const products = ['telefon', 'laptop', 'kulaklık', 'tablet', 'akıllı saat', 'oyun konsolu'];
     const randomProduct = products[Math.floor(Math.random() * products.length)];
     
     res.json({
       success: true,
       urunTahmini: randomProduct,
       tespitEdilen: 'Elektronik ürün',
-      note: 'Görsel analiz başarılı'
+      note: 'Görsel analiz başarılı (demo)'
     });
     
   } catch (error) {
@@ -470,11 +357,30 @@ app.post('/kamera-ai', async (req, res) => {
   }
 });
 
+// 7. API DURUMU
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'active',
+    version: '2.0.0',
+    timestamp: new Date().toISOString(),
+    endpoints: [
+      '/health',
+      '/fiyat-cek',
+      '/fiyat-cek-link', 
+      '/ai/yorum',
+      '/ai/compare',
+      '/kamera-ai',
+      '/api/status'
+    ],
+    note: 'Cheerio kurulumu gerekiyor - şu an mock veri kullanılıyor'
+  });
+});
+
 // ========== SUNUCU BAŞLATMA ==========
 app.listen(PORT, () => {
   console.log(`\n🚀 FiyatTakip API çalışıyor: http://localhost:${PORT}`);
-  console.log(`🤖 AI Model: google/flan-t5-large`);
-  console.log(`🔑 HF Key: ${process.env.HF_API_KEY ? 'VAR' : 'YOK'}`);
-  console.log(`📦 Link'ten fiyat çekme: AKTİF`);
-  console.log(`🛡️ Bot koruma önlemleri: AKTİF\n`);
+  console.log(`🤖 AI Model: Akıllı Fallback Sistemi`);
+  console.log(`📦 Link'ten fiyat çekme: MOCK VERİ (cheerio kurulumu gerekli)`);
+  console.log(`✅ Endpoints: /health, /fiyat-cek, /ai/yorum, /ai/compare`);
+  console.log(`⚠️  NOT: Gerçek fiyat çekmek için cheerio paketi kurulmalı\n`);
 });
