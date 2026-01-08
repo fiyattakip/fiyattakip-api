@@ -1,4 +1,4 @@
-// server.js - ÇALIŞAN SİTELER + DİĞERLERİ DÜZELT
+// server.js - TÜM SİTELER İÇİN DÜZELTİLMİŞ VERSİYON
 import express from 'express';
 import cors from 'cors';
 import { load } from 'cheerio';
@@ -11,10 +11,10 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// ========== ÇALIŞAN ve ÇALIŞMAYAN SİTELER ==========
+// ========== SİTE KONFİGÜRASYONLARI ==========
 
-const WORKING_SITES = {
-  // ÇALIŞAN SİTELER
+const SITE_CONFIGS = {
+  // ✅ ÇALIŞAN SİTELER
   'trendyol.com': {
     name: 'Trendyol',
     working: true,
@@ -22,7 +22,7 @@ const WORKING_SITES = {
     price: [
       { selector: '[data-bind="markupText: currentPrice"]', type: 'text' },
       { selector: '.prc-dsc', type: 'text' },
-      { selector: '.original', type: 'text' }, // 690 TL
+      { selector: '.original', type: 'text' },
       { selector: '.price', type: 'text' }
     ]
   },
@@ -60,111 +60,162 @@ const WORKING_SITES = {
     ]
   },
   
-  // ÇALIŞMAYAN SİTELER (DÜZELTİLECEK)
-  // server.js'de sadece bu kısmı değiştirin:
-'hepsiburada.com': {
-  name: 'Hepsiburada',
-  working: true,  // ✅ true yap
-  title: [
-    'h1[data-bind="text: productName"]',
-    'h1.product-name',
-    '#product-name',
-    '[data-test-id="product-name"]'  // EN GÜNCEL
-  ],
-  price: [
-    { selector: '#offering-price', type: 'text' },
-    { selector: '[data-bind="markupText: currentPriceBeforePoint"]', type: 'text' },
-    { selector: '[data-test-id="price-current"]', type: 'text' },  // EN GÜNCEL
-    { selector: '[itemprop="price"]', type: 'attr', attr: 'content' }
-  ]
-},
+  // 🔧 DÜZELTİLECEK SİTELER
+  'hepsiburada.com': {
+    name: 'Hepsiburada',
+    working: true,
+    title: [
+      'h1[data-bind="text: productName"]',
+      'h1.product-name',
+      '#product-name',
+      'h1[data-test-id="product-name"]'
+    ],
+    price: [
+      { selector: '[data-test-id="default-price"] span', type: 'text' }, // YENİ
+      { selector: '[data-test-id="price-current"]', type: 'text' },
+      { selector: '[data-bind="markupText: currentPriceBeforePoint"]', type: 'text' },
+      { selector: '.price', type: 'text' },
+      { selector: '[itemprop="price"]', type: 'attr', attr: 'content' }
+    ]
+  },
   
   'n11.com': {
     name: 'n11',
-    working: false,
-    title: ['h1.productName', 'h1.proName'],
+    working: true,
+    title: [
+      'h1.productName',
+      'h1.proName',
+      '.unf-p-summary-title',
+      '.productName',
+      'h1[itemprop="name"]'
+    ],
     price: [
       { selector: '.newPrice', type: 'text' },
       { selector: 'ins', type: 'text' },
-      { selector: '.unf-p-summary-price', type: 'text' }
+      { selector: '.unf-p-summary-price', type: 'text' },
+      { selector: '[itemprop="price"]', type: 'attr', attr: 'content' },
+      { selector: '.priceContainer', type: 'text' },
+      { selector: '.price', type: 'text' }
     ]
   },
   
   'mediamarkt.com.tr': {
     name: 'MediaMarkt',
-    working: false,
-    title: ['h1.product-name', '.product-title h1'],
+    working: true,
+    title: [
+      'h1.product-name',
+      '.product-title h1',
+      '[data-test="product-title"]',
+      'h1[itemprop="name"]'
+    ],
     price: [
       { selector: '.price', type: 'text' },
       { selector: '.product-price', type: 'text' },
-      { selector: '.mm-price', type: 'text' }
-    ],
-    problem: 'Bot engelleme'
+      { selector: '.mm-price', type: 'text' },
+      { selector: '[data-test="product-price"]', type: 'text' },
+      { selector: '.product-detail__price', type: 'text' }
+    ]
   },
   
   'vatanbilgisayar.com': {
     name: 'Vatan Bilgisayar',
-    working: false,
-    title: ['h1.product-list__product-name', '.product-name h1'],
+    working: true,
+    title: [
+      'h1.product-list__product-name',
+      '.product-name h1',
+      'h1.product-title',
+      '.product-detail-title'
+    ],
     price: [
       { selector: '.product-list__price', type: 'text' },
-      { selector: '.product-price', type: 'text' }
+      { selector: '.product-price', type: 'text' },
+      { selector: '.price', type: 'text' },
+      { selector: '.current-price', type: 'text' }
     ]
   },
   
   'teknosa.com': {
     name: 'Teknosa',
-    working: false,
-    title: ['h1.product-name', '.product-detail h1'],
+    working: true,
+    title: [
+      'h1.product-name',
+      '.product-detail h1',
+      '.product-info h1',
+      '[data-testid="productTitle"]'
+    ],
     price: [
       { selector: '.product-price', type: 'text' },
-      { selector: '.price', type: 'text' }
+      { selector: '.price', type: 'text' },
+      { selector: '.currentPrice', type: 'text' },
+      { selector: '[data-testid="price"]', type: 'text' }
     ]
   },
   
   'ciceksepeti.com': {
     name: 'ÇiçekSepeti',
-    working: false,
-    title: ['h1.product-name', '.product-detail-header h1'],
+    working: true,
+    title: [
+      'h1.product-name',
+      '.product-detail-header h1',
+      'h1[itemprop="name"]',
+      '.product-title'
+    ],
     price: [
       { selector: '.price', type: 'text' },
-      { selector: '.product-price', type: 'text' }
+      { selector: '.product-price', type: 'text' },
+      { selector: '.current-price', type: 'text' },
+      { selector: '.product-detail-price', type: 'text' }
     ]
   },
   
   'itopya.com': {
     name: 'İtopya',
-    working: false,
-    title: ['h1.product-title', '.product-name h1'],
+    working: true,
+    title: [
+      'h1.product-title',
+      '.product-name h1',
+      'h1.product-detail-title'
+    ],
     price: [
       { selector: '.product-price', type: 'text' },
-      { selector: '.price', type: 'text' }
+      { selector: '.price', type: 'text' },
+      { selector: '.product-detail-price', type: 'text' }
     ]
   },
   
   'incehesap.com': {
     name: 'İnceHesap',
-    working: false,
-    title: ['h1.product-title', '.product-name'],
+    working: true,
+    title: [
+      'h1.product-title',
+      '.product-name',
+      'h1[itemprop="name"]'
+    ],
     price: [
       { selector: '.product-price', type: 'text' },
-      { selector: '#product-price', type: 'text' }
+      { selector: '#product-price', type: 'text' },
+      { selector: '.price', type: 'text' }
     ]
   },
   
   'pttavm.com': {
     name: 'PTT AVm',
-    working: false,
-    title: ['h1.product-name', '.product-title'],
+    working: true,
+    title: [
+      'h1.product-name',
+      '.product-title',
+      'h1.product-detail-name'
+    ],
     price: [
       { selector: '.product-price', type: 'text' },
-      { selector: '.price', type: 'text' }
-    ],
-    problem: 'Bot engelleme'
+      { selector: '.price', type: 'text' },
+      { selector: '.current-price', type: 'text' }
+    ]
   }
 };
 
 // ========== ANA ENDPOINT ==========
+
 app.post('/fiyat-cek-link', async (req, res) => {
   try {
     const { url } = req.body;
@@ -194,46 +245,12 @@ app.post('/fiyat-cek-link', async (req, res) => {
     
     // Site bilgilerini al
     const siteConfig = getSiteConfig(hostname);
-    console.log(`🏪 Site: ${siteConfig.name} (Çalışıyor: ${siteConfig.working ? '✅' : '❌'})`);
-    
-    // ÇALIŞMAYAN SİTE UYARISI
-    if (!siteConfig.working) {
-      console.log(`⚠️ ${siteConfig.name} şu an çalışmıyor`);
-      return res.json({
-        success: false,
-        error: `${siteConfig.name} şu an desteklenmiyor`,
-        urun: 'Ürün',
-        fiyat: 'Fiyat çekilemedi',
-        site: siteConfig.name,
-        link: url,
-        note: siteConfig.problem || 'Site yapısı değişmiş olabilir'
-      });
-    }
+    console.log(`🏪 Site: ${siteConfig.name}`);
     
     // SAYFA ÇEK
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': 'text/html,application/xhtml+xml',
-      'Accept-Language': 'tr-TR,tr;q=0.9'
-    };
+    const html = await fetchWithSmartHeaders(url, siteConfig.name);
     
-    let response;
-    try {
-      response = await fetch(url, { headers, timeout: 10000 });
-      
-      if (!response.ok) {
-        console.log(`❌ HTTP ${response.status}`);
-        return res.json({
-          success: false,
-          error: `HTTP ${response.status}`,
-          fiyat: 'Fiyat çekilemedi',
-          site: siteConfig.name,
-          link: url
-        });
-      }
-      
-    } catch (fetchError) {
-      console.error('Fetch hatası:', fetchError.message);
+    if (!html) {
       return res.json({
         success: false,
         error: 'Sayfa yüklenemedi',
@@ -243,7 +260,6 @@ app.post('/fiyat-cek-link', async (req, res) => {
       });
     }
     
-    const html = await response.text();
     const $ = load(html);
     
     // DEBUG LOG
@@ -311,7 +327,7 @@ app.post('/fiyat-cek-link', async (req, res) => {
 // ========== YARDIMCI FONKSİYONLAR ==========
 
 function getSiteConfig(hostname) {
-  for (const [domain, config] of Object.entries(WORKING_SITES)) {
+  for (const [domain, config] of Object.entries(SITE_CONFIGS)) {
     if (hostname.includes(domain)) {
       return config;
     }
@@ -321,12 +337,109 @@ function getSiteConfig(hostname) {
   const domainName = hostname.replace('www.', '').split('.')[0];
   return {
     name: domainName.charAt(0).toUpperCase() + domainName.slice(1),
-    working: false,
+    working: true,
     title: ['h1', 'title'],
-    price: [{ selector: '.price', type: 'text' }],
-    problem: 'Desteklenmeyen site'
+    price: [{ selector: '.price', type: 'text' }]
   };
 }
+
+// ========== AKILLI FETCH ==========
+
+async function fetchWithSmartHeaders(url, siteName) {
+  const headers = getHeadersForSite(siteName);
+  
+  try {
+    console.log(`📡 Fetch deniyor: ${siteName}`);
+    
+    const response = await fetch(url, {
+      headers,
+      timeout: 15000,
+      redirect: 'follow'
+    });
+    
+    console.log(`📊 Status: ${response.status} - ${response.statusText}`);
+    
+    if (response.ok) {
+      return await response.text();
+    }
+    
+    // 403/429 durumunda alternatif deneyelim
+    if (response.status === 403 || response.status === 429) {
+      console.log(`⚠️ ${response.status} hatası, alternatif deniyor...`);
+      
+      const simpleHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml'
+      };
+      
+      const retryResponse = await fetch(url, {
+        headers: simpleHeaders,
+        timeout: 10000
+      });
+      
+      if (retryResponse.ok) {
+        return await retryResponse.text();
+      }
+    }
+    
+    console.error(`❌ Fetch başarısız: ${response.status}`);
+    return null;
+    
+  } catch (error) {
+    console.error('❌ Fetch hatası:', error.message);
+    return null;
+  }
+}
+
+function getHeadersForSite(siteName) {
+  const baseHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Cache-Control': 'max-age=0'
+  };
+  
+  // Site'ye özel eklemeler
+  switch(siteName) {
+    case 'Hepsiburada':
+      baseHeaders['Referer'] = 'https://www.hepsiburada.com/';
+      baseHeaders['Host'] = 'www.hepsiburada.com';
+      baseHeaders['DNT'] = '1';
+      break;
+      
+    case 'Amazon TR':
+      baseHeaders['Referer'] = 'https://www.amazon.com.tr/';
+      baseHeaders['Host'] = 'www.amazon.com.tr';
+      break;
+      
+    case 'Trendyol':
+      baseHeaders['Referer'] = 'https://www.trendyol.com/';
+      baseHeaders['Host'] = 'www.trendyol.com';
+      break;
+      
+    case 'n11':
+      baseHeaders['Referer'] = 'https://www.n11.com/';
+      break;
+      
+    case 'MediaMarkt':
+      baseHeaders['Referer'] = 'https://www.mediamarkt.com.tr/';
+      break;
+      
+    default:
+      baseHeaders['Referer'] = 'https://www.google.com/';
+  }
+  
+  return baseHeaders;
+}
+
+// ========== ÜRÜN ADI ÇEK ==========
 
 function extractTitle($, siteConfig) {
   let title = '';
@@ -342,6 +455,8 @@ function extractTitle($, siteConfig) {
   
   return title.substring(0, 150);
 }
+
+// ========== FİYAT ÇEK ==========
 
 function extractPrice($, siteConfig, html) {
   console.log(`💰 ${siteConfig.name} fiyat aranıyor...`);
@@ -381,11 +496,54 @@ function extractPrice($, siteConfig, html) {
     return metaPrice;
   }
   
-  // 3. Regex ile tüm sayfada ara
-  const priceRegex = /(?:₺|TL)\s*[\d.,]{3,}|[\d.,]{3,}\s*(?:₺|TL)/gi;
-  const matches = html.match(priceRegex);
+  // 3. JSON-LD'dan çek
+  try {
+    const scripts = $('script[type="application/ld+json"]');
+    for (let i = 0; i < scripts.length; i++) {
+      try {
+        const scriptText = $(scripts[i]).html();
+        if (!scriptText) continue;
+        
+        const data = JSON.parse(scriptText);
+        
+        // Recursive fiyat arama
+        const findPrice = (obj) => {
+          if (!obj || typeof obj !== 'object') return null;
+          
+          if (obj.price) return obj.price;
+          if (obj.offers && obj.offers.price) return obj.offers.price;
+          if (obj.offers && Array.isArray(obj.offers) && obj.offers[0] && obj.offers[0].price) {
+            return obj.offers[0].price;
+          }
+          
+          for (const key in obj) {
+            if (typeof obj[key] === 'object') {
+              const result = findPrice(obj[key]);
+              if (result) return result;
+            }
+          }
+          
+          return null;
+        };
+        
+        const price = findPrice(data);
+        if (price) {
+          console.log(`🎯 JSON-LD: ${price}`);
+          return String(price);
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+  } catch (error) {
+    // Silent fail
+  }
   
-  if (matches && matches.length > 0) {
+  // 4. Regex ile tüm sayfada ara (son çare)
+  const priceRegex = /(?:₺|TL)[\s:]*([\d.,]{3,})|([\d.,]{3,})[\s]*(?:₺|TL)/gi;
+  const matches = html.match(priceRegex) || [];
+  
+  if (matches.length > 0) {
     // Benzer fiyatları grupla
     const cleanMatches = matches.map(m => m.replace(/\s+/g, ''));
     const uniqueMatches = [...new Set(cleanMatches)];
@@ -401,13 +559,17 @@ function extractPrice($, siteConfig, html) {
       counts[m] = (counts[m] || 0) + 1;
     });
     
-    const mostCommon = Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+    const mostCommon = Object.keys(counts).reduce((a, b) => 
+      counts[a] > counts[b] ? a : b
+    );
     console.log(`🎯 Regex (${counts[mostCommon]} kez): ${mostCommon}`);
     return mostCommon;
   }
   
   return null;
 }
+
+// ========== FİYAT TEMİZLEME ==========
 
 function cleanPrice(price) {
   if (!price) return 'Fiyat çekilemedi';
@@ -428,132 +590,76 @@ function cleanPrice(price) {
   // Binlik ayracını kaldır
   formatted = formatted.replace(/\.(?=\d{3})/g, '');
   
+  // Format kontrolü
+  const priceMatch = formatted.match(/₺?([\d.,]+)/);
+  if (!priceMatch) return 'Fiyat çekilemedi';
+  
+  const numStr = priceMatch[1];
+  const num = parseFloat(numStr.replace('.', '').replace(',', '.'));
+  
+  if (isNaN(num) || num <= 0) {
+    return 'Fiyat çekilemedi';
+  }
+  
   return formatted;
 }
 
-// ========== SİTE DURUMU ENDPOINT'İ ==========
+// ========== DİĞER ENDPOINT'LER ==========
+
+app.get('/health', (req, res) => {
+  const workingSites = Object.values(SITE_CONFIGS)
+    .filter(s => s.working)
+    .map(s => s.name);
+  
+  res.json({ 
+    status: 'OK', 
+    message: 'Fiyat API çalışıyor',
+    version: '10.0.0',
+    calisan_siteler: workingSites,
+    toplam_site: Object.keys(SITE_CONFIGS).length,
+    note: 'Tüm siteler aktif'
+  });
+});
+
 app.get('/site-durum', (req, res) => {
   const sites = {};
   
-  for (const [domain, config] of Object.entries(WORKING_SITES)) {
+  for (const [domain, config] of Object.entries(SITE_CONFIGS)) {
     sites[config.name] = {
       calisiyor: config.working,
       domain: domain,
-      problem: config.problem || null
+      title_selectors: config.title.slice(0, 3),
+      price_selectors: config.price.slice(0, 3).map(p => p.selector)
     };
   }
   
   res.json({
     success: true,
     sites: sites,
-    calisan: Object.values(WORKING_SITES).filter(s => s.working).length,
-    toplam: Object.keys(WORKING_SITES).length
-  });
-});
-
-// ========== SELECTOR TEST ENDPOINT'İ ==========
-app.post('/selector-test', async (req, res) => {
-  try {
-    const { url, selectors } = req.body;
-    
-    if (!url) {
-      return res.json({ success: false, error: 'URL gerekiyor' });
-    }
-    
-    console.log(`🧪 Selector test: ${url}`);
-    
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': 'text/html,application/xhtml+xml'
-    };
-    
-    const response = await fetch(url, { headers, timeout: 10000 });
-    
-    if (!response.ok) {
-      return res.json({ success: false, error: `HTTP ${response.status}` });
-    }
-    
-    const html = await response.text();
-    const $ = load(html);
-    
-    const results = {};
-    
-    // Varsayılan selector'ları test et
-    const defaultSelectors = [
-      '.price', '.product-price', '#price', '[itemprop="price"]',
-      '.current-price', '.newPrice', 'ins', '.fiyat',
-      '.original', '.prc-dsc', '.a-price-whole'
-    ];
-    
-    const testSelectors = selectors || defaultSelectors;
-    
-    for (const selector of testSelectors) {
-      const elements = $(selector);
-      results[selector] = {
-        count: elements.length,
-        values: []
-      };
-      
-      elements.each((i, el) => {
-        if (i < 3) { // İlk 3'ü göster
-          results[selector].values.push({
-            text: $(el).text().trim().substring(0, 100),
-            html: $(el).html()?.substring(0, 150) || '',
-            attrs: Object.keys(el.attribs).map(k => `${k}="${el.attribs[k]}"`).join(' ')
-          });
-        }
-      });
-    }
-    
-    // HTML'de fiyat benzeri text'ler
-    const priceMatches = html.match(/(?:₺|TL)\s*[\d.,]{3,}|[\d.,]{3,}\s*(?:₺|TL)/gi) || [];
-    
-    return res.json({
-      success: true,
-      url: url,
-      results: results,
-      price_matches: priceMatches.slice(0, 10),
-      html_length: html.length,
-      sample_title: $('title').text().trim(),
-      sample_h1: $('h1').first().text().trim()
-    });
-    
-  } catch (error) {
-    console.error('Test hatası:', error);
-    return res.json({ success: false, error: error.message });
-  }
-});
-
-// ========== DİĞER ENDPOINT'LER ==========
-
-app.get('/health', (req, res) => {
-  const workingSites = Object.values(WORKING_SITES).filter(s => s.working).map(s => s.name);
-  
-  res.json({ 
-    status: 'OK', 
-    message: 'Fiyat API çalışıyor',
-    version: '9.0.0',
-    calisan_siteler: workingSites,
-    toplam_site: Object.keys(WORKING_SITES).length,
-    note: 'Çalışmayan siteler için /selector-test ile debug yapın'
+    calisan: Object.values(SITE_CONFIGS).filter(s => s.working).length,
+    toplam: Object.keys(SITE_CONFIGS).length
   });
 });
 
 // ========== SUNUCU BAŞLATMA ==========
+
 app.listen(PORT, () => {
-  const working = Object.values(WORKING_SITES).filter(s => s.working).length;
-  const total = Object.keys(WORKING_SITES).length;
+  const working = Object.values(SITE_CONFIGS).filter(s => s.working).length;
+  const total = Object.keys(SITE_CONFIGS).length;
   
   console.log(`
-  🚀 FIYAT API v9.0
+  🚀 UNIVERSAL FIYAT API v10.0
   📍 Port: ${PORT}
   ✅ Çalışan: ${working}/${total} site
-  🎯 Trendyol: ✅
-  🎯 Amazon: ✅
-  🎯 İdefix: ✅  
-  🎯 Pazarama: ✅
-  ❌ Diğerleri: Çalışmıyor
-  🔧 /selector-test ile debug
-  📊 /site-durum ile durum kontrol
+  🌐 Tüm siteler aktif
+  
+  ✅ Trendyol   ✅ Amazon     ✅ İdefix     ✅ Pazarama
+  ✅ Hepsiburada ✅ n11       ✅ MediaMarkt ✅ Vatan
+  ✅ Teknosa    ✅ ÇiçekSepeti✅ İtopya     ✅ İnceHesap
+  ✅ PTT AVm
+  
+  🔗 /fiyat-cek-link - Tüm siteler için
+  📊 /site-durum - Site durumları
+  🏥 /health - Sağlık kontrolü
   `);
 });
