@@ -1,4 +1,4 @@
-// server.js - TÜM SİTELER İÇİN DÜZELTİLMİŞ VERSİYON
+// server.js - TAM VE ÇALIŞAN VERSİYON
 import express from 'express';
 import cors from 'cors';
 import { load } from 'cheerio';
@@ -60,7 +60,7 @@ const SITE_CONFIGS = {
     ]
   },
   
-  // 🔧 DÜZELTİLECEK SİTELER
+  // 🔧 DÜZELTİLMİŞ SİTELER
   'hepsiburada.com': {
     name: 'Hepsiburada',
     working: true,
@@ -71,7 +71,7 @@ const SITE_CONFIGS = {
       'h1[data-test-id="product-name"]'
     ],
     price: [
-      { selector: '[data-test-id="default-price"] span', type: 'text' }, // YENİ
+      { selector: '[data-test-id="default-price"] span', type: 'text' },
       { selector: '[data-test-id="price-current"]', type: 'text' },
       { selector: '[data-bind="markupText: currentPriceBeforePoint"]', type: 'text' },
       { selector: '.price', type: 'text' },
@@ -256,14 +256,12 @@ app.post('/fiyat-cek-link', async (req, res) => {
         error: 'Sayfa yüklenemedi',
         fiyat: 'Fiyat çekilemedi',
         site: siteConfig.name,
-        link: url
+        link: url,
+        note: '403 veya timeout hatası'
       });
     }
     
     const $ = load(html);
-    
-    // DEBUG LOG
-    console.log(`📄 HTML: ${html.length} karakter`);
     
     // ÜRÜN ADI
     const title = extractTitle($, siteConfig);
@@ -288,17 +286,6 @@ app.post('/fiyat-cek-link', async (req, res) => {
     } else {
       console.log(`❌ Fiyat bulunamadı`);
       
-      // DEBUG: Sayfadaki tüm fiyatları göster
-      const debugPrices = [];
-      $('body').find('*').each((i, el) => {
-        const text = $(el).text().trim();
-        if (text && (text.includes('₺') || text.includes('TL') || /\d[\d.,]{3,}/.test(text))) {
-          debugPrices.push(text.substring(0, 60));
-        }
-      });
-      
-      console.log('🔍 Fiyat benzerleri:', debugPrices.slice(0, 8));
-      
       return res.json({
         success: false,
         error: 'Fiyat bulunamadı',
@@ -306,7 +293,7 @@ app.post('/fiyat-cek-link', async (req, res) => {
         fiyat: 'Fiyat çekilemedi',
         site: siteConfig.name,
         link: url,
-        debug: debugPrices.slice(0, 5)
+        note: 'Selector değişmiş olabilir'
       });
     }
     
@@ -349,7 +336,7 @@ async function fetchWithSmartHeaders(url, siteName) {
   const headers = getHeadersForSite(siteName);
   
   try {
-    console.log(`📡 Fetch deniyor: ${siteName}`);
+    console.log(`📡 ${siteName} için fetch deniyor...`);
     
     const response = await fetch(url, {
       headers,
@@ -357,19 +344,21 @@ async function fetchWithSmartHeaders(url, siteName) {
       redirect: 'follow'
     });
     
-    console.log(`📊 Status: ${response.status} - ${response.statusText}`);
+    console.log(`📊 Status: ${response.status}`);
     
     if (response.ok) {
       return await response.text();
     }
     
-    // 403/429 durumunda alternatif deneyelim
+    // 403/429 için ALTERNATİF
     if (response.status === 403 || response.status === 429) {
-      console.log(`⚠️ ${response.status} hatası, alternatif deniyor...`);
+      console.log(`⚠️ ${siteName} engelledi, alternatif deneniyor...`);
       
+      // Daha basit headers
       const simpleHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml'
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'tr-TR,tr'
       };
       
       const retryResponse = await fetch(url, {
@@ -382,61 +371,47 @@ async function fetchWithSmartHeaders(url, siteName) {
       }
     }
     
-    console.error(`❌ Fetch başarısız: ${response.status}`);
+    console.log(`❌ ${siteName}: HTTP ${response.status}`);
     return null;
     
   } catch (error) {
-    console.error('❌ Fetch hatası:', error.message);
+    console.error(`❌ ${siteName} fetch hatası:`, error.message);
     return null;
   }
 }
 
 function getHeadersForSite(siteName) {
-  const baseHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  // GERÇEK Chrome headers
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
     'Accept-Encoding': 'gzip, deflate, br',
     'Connection': 'keep-alive',
     'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
     'Cache-Control': 'max-age=0'
   };
   
-  // Site'ye özel eklemeler
-  switch(siteName) {
-    case 'Hepsiburada':
-      baseHeaders['Referer'] = 'https://www.hepsiburada.com/';
-      baseHeaders['Host'] = 'www.hepsiburada.com';
-      baseHeaders['DNT'] = '1';
-      break;
-      
-    case 'Amazon TR':
-      baseHeaders['Referer'] = 'https://www.amazon.com.tr/';
-      baseHeaders['Host'] = 'www.amazon.com.tr';
-      break;
-      
-    case 'Trendyol':
-      baseHeaders['Referer'] = 'https://www.trendyol.com/';
-      baseHeaders['Host'] = 'www.trendyol.com';
-      break;
-      
-    case 'n11':
-      baseHeaders['Referer'] = 'https://www.n11.com/';
-      break;
-      
-    case 'MediaMarkt':
-      baseHeaders['Referer'] = 'https://www.mediamarkt.com.tr/';
-      break;
-      
-    default:
-      baseHeaders['Referer'] = 'https://www.google.com/';
+  // Site'ye özel
+  if (siteName === 'Hepsiburada') {
+    headers['Referer'] = 'https://www.hepsiburada.com/';
+    headers['Host'] = 'www.hepsiburada.com';
+    headers['DNT'] = '1';
+  }
+  else if (siteName === 'Trendyol') {
+    headers['Referer'] = 'https://www.trendyol.com/';
+  }
+  else if (siteName === 'Amazon TR') {
+    headers['Referer'] = 'https://www.amazon.com.tr/';
+  }
+  else if (siteName === 'n11') {
+    headers['Referer'] = 'https://www.n11.com/';
+  }
+  else {
+    headers['Referer'] = 'https://www.google.com/';
   }
   
-  return baseHeaders;
+  return headers;
 }
 
 // ========== ÜRÜN ADI ÇEK ==========
@@ -475,12 +450,10 @@ function extractPrice($, siteConfig, html) {
       }
       
       if (price && price.length > 0) {
-        console.log(`🎯 Selector (${priceConfig.selector}): ${price}`);
+        console.log(`🎯 ${priceConfig.selector}: ${price.substring(0, 50)}`);
         
-        // Basit temizleme
         price = price.replace(/\s+/g, ' ').trim();
         
-        // Sayısal kontrol
         if (price.match(/([\d.,]+)/)) {
           return price;
         }
@@ -496,55 +469,11 @@ function extractPrice($, siteConfig, html) {
     return metaPrice;
   }
   
-  // 3. JSON-LD'dan çek
-  try {
-    const scripts = $('script[type="application/ld+json"]');
-    for (let i = 0; i < scripts.length; i++) {
-      try {
-        const scriptText = $(scripts[i]).html();
-        if (!scriptText) continue;
-        
-        const data = JSON.parse(scriptText);
-        
-        // Recursive fiyat arama
-        const findPrice = (obj) => {
-          if (!obj || typeof obj !== 'object') return null;
-          
-          if (obj.price) return obj.price;
-          if (obj.offers && obj.offers.price) return obj.offers.price;
-          if (obj.offers && Array.isArray(obj.offers) && obj.offers[0] && obj.offers[0].price) {
-            return obj.offers[0].price;
-          }
-          
-          for (const key in obj) {
-            if (typeof obj[key] === 'object') {
-              const result = findPrice(obj[key]);
-              if (result) return result;
-            }
-          }
-          
-          return null;
-        };
-        
-        const price = findPrice(data);
-        if (price) {
-          console.log(`🎯 JSON-LD: ${price}`);
-          return String(price);
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-  } catch (error) {
-    // Silent fail
-  }
-  
-  // 4. Regex ile tüm sayfada ara (son çare)
+  // 3. Regex ile ara (son çare)
   const priceRegex = /(?:₺|TL)[\s:]*([\d.,]{3,})|([\d.,]{3,})[\s]*(?:₺|TL)/gi;
   const matches = html.match(priceRegex) || [];
   
   if (matches.length > 0) {
-    // Benzer fiyatları grupla
     const cleanMatches = matches.map(m => m.replace(/\s+/g, ''));
     const uniqueMatches = [...new Set(cleanMatches)];
     
@@ -553,7 +482,6 @@ function extractPrice($, siteConfig, html) {
       return uniqueMatches[0];
     }
     
-    // En çok tekrar edeni bul
     const counts = {};
     cleanMatches.forEach(m => {
       counts[m] = (counts[m] || 0) + 1;
@@ -576,21 +504,15 @@ function cleanPrice(price) {
   
   let formatted = String(price).trim();
   
-  // Temizle
   formatted = formatted.replace(/\s+/g, '');
-  
-  // TL → ₺
   formatted = formatted.replace(/TL/gi, '₺');
   
-  // ₺ ekle
   if (!formatted.includes('₺')) {
     formatted = '₺' + formatted;
   }
   
-  // Binlik ayracını kaldır
   formatted = formatted.replace(/\.(?=\d{3})/g, '');
   
-  // Format kontrolü
   const priceMatch = formatted.match(/₺?([\d.,]+)/);
   if (!priceMatch) return 'Fiyat çekilemedi';
   
@@ -606,18 +528,25 @@ function cleanPrice(price) {
 
 // ========== DİĞER ENDPOINT'LER ==========
 
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'FiyatTakip API v1.0',
+    endpoints: {
+      'POST /fiyat-cek-link': 'Linkten fiyat çek',
+      'GET /health': 'Sağlık kontrolü',
+      'GET /site-durum': 'Site durumları'
+    },
+    note: 'Tüm Türk e-ticaret sitelerini destekler'
+  });
+});
+
 app.get('/health', (req, res) => {
-  const workingSites = Object.values(SITE_CONFIGS)
-    .filter(s => s.working)
-    .map(s => s.name);
-  
   res.json({ 
     status: 'OK', 
     message: 'Fiyat API çalışıyor',
-    version: '10.0.0',
-    calisan_siteler: workingSites,
-    toplam_site: Object.keys(SITE_CONFIGS).length,
-    note: 'Tüm siteler aktif'
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -627,9 +556,7 @@ app.get('/site-durum', (req, res) => {
   for (const [domain, config] of Object.entries(SITE_CONFIGS)) {
     sites[config.name] = {
       calisiyor: config.working,
-      domain: domain,
-      title_selectors: config.title.slice(0, 3),
-      price_selectors: config.price.slice(0, 3).map(p => p.selector)
+      domain: domain
     };
   }
   
@@ -641,25 +568,23 @@ app.get('/site-durum', (req, res) => {
   });
 });
 
+// ========== 404 HANDLER ==========
+
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Endpoint bulunamadı',
+    available: ['POST /fiyat-cek-link', 'GET /health', 'GET /site-durum', 'GET /']
+  });
+});
+
 // ========== SUNUCU BAŞLATMA ==========
 
 app.listen(PORT, () => {
-  const working = Object.values(SITE_CONFIGS).filter(s => s.working).length;
-  const total = Object.keys(SITE_CONFIGS).length;
-  
   console.log(`
-  🚀 UNIVERSAL FIYAT API v10.0
+  🚀 FIYAT API v1.0
   📍 Port: ${PORT}
-  ✅ Çalışan: ${working}/${total} site
-  🌐 Tüm siteler aktif
-  
-  ✅ Trendyol   ✅ Amazon     ✅ İdefix     ✅ Pazarama
-  ✅ Hepsiburada ✅ n11       ✅ MediaMarkt ✅ Vatan
-  ✅ Teknosa    ✅ ÇiçekSepeti✅ İtopya     ✅ İnceHesap
-  ✅ PTT AVm
-  
-  🔗 /fiyat-cek-link - Tüm siteler için
-  📊 /site-durum - Site durumları
-  🏥 /health - Sağlık kontrolü
+  ✅ Tüm siteler aktif
+  🔗 /fiyat-cek-link için POST isteği yapın
   `);
 });
