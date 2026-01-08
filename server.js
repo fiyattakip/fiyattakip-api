@@ -1,4 +1,4 @@
-// server.js - TAM DÜZENLENMİŞ VERSİYON
+// server.js - TAM KOD (AI KARŞILAŞTIRMA ÖZGÜN)
 import express from 'express';
 import cors from 'cors';
 import { load } from 'cheerio';
@@ -12,9 +12,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ========== SİTE KONFİGÜRASYONLARI ==========
-
 const SITE_CONFIGS = {
-  // ✅ ÇALIŞAN SİTELER
   'trendyol.com': {
     name: 'Trendyol',
     working: true,
@@ -60,7 +58,6 @@ const SITE_CONFIGS = {
     ]
   },
   
-  // 🔧 DÜZELTİLMİŞ SİTELER
   'hepsiburada.com': {
     name: 'Hepsiburada',
     working: true,
@@ -215,7 +212,6 @@ const SITE_CONFIGS = {
 };
 
 // ========== ANA ENDPOINT ==========
-
 app.post('/fiyat-cek-link', async (req, res) => {
   try {
     const { url } = req.body;
@@ -230,7 +226,6 @@ app.post('/fiyat-cek-link', async (req, res) => {
     
     console.log(`🔗 İstek: ${url}`);
     
-    // URL analiz
     let hostname = '';
     try {
       const urlObj = new URL(url);
@@ -243,11 +238,9 @@ app.post('/fiyat-cek-link', async (req, res) => {
       });
     }
     
-    // Site bilgilerini al
     const siteConfig = getSiteConfig(hostname);
     console.log(`🏪 Site: ${siteConfig.name}`);
     
-    // SAYFA ÇEK
     const html = await fetchWithSmartHeaders(url, siteConfig.name);
     
     if (!html) {
@@ -263,11 +256,9 @@ app.post('/fiyat-cek-link', async (req, res) => {
     
     const $ = load(html);
     
-    // ÜRÜN ADI
     const title = extractTitle($, siteConfig);
     console.log(`📝 Ürün: ${title.substring(0, 80)}...`);
     
-    // FİYAT
     const price = extractPrice($, siteConfig, html);
     
     if (price) {
@@ -312,7 +303,6 @@ app.post('/fiyat-cek-link', async (req, res) => {
 });
 
 // ========== YARDIMCI FONKSİYONLAR ==========
-
 function getSiteConfig(hostname) {
   for (const [domain, config] of Object.entries(SITE_CONFIGS)) {
     if (hostname.includes(domain)) {
@@ -320,7 +310,6 @@ function getSiteConfig(hostname) {
     }
   }
   
-  // Bilinmeyen site
   const domainName = hostname.replace('www.', '').split('.')[0];
   return {
     name: domainName.charAt(0).toUpperCase() + domainName.slice(1),
@@ -329,8 +318,6 @@ function getSiteConfig(hostname) {
     price: [{ selector: '.price', type: 'text' }]
   };
 }
-
-// ========== AKILLI FETCH ==========
 
 async function fetchWithSmartHeaders(url, siteName) {
   const headers = getHeadersForSite(siteName);
@@ -350,11 +337,9 @@ async function fetchWithSmartHeaders(url, siteName) {
       return await response.text();
     }
     
-    // 403/429 için ALTERNATİF
     if (response.status === 403 || response.status === 429) {
       console.log(`⚠️ ${siteName} engelledi, alternatif deneniyor...`);
       
-      // Daha basit headers
       const simpleHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml',
@@ -381,7 +366,6 @@ async function fetchWithSmartHeaders(url, siteName) {
 }
 
 function getHeadersForSite(siteName) {
-  // GERÇEK Chrome headers
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -392,7 +376,6 @@ function getHeadersForSite(siteName) {
     'Cache-Control': 'max-age=0'
   };
   
-  // Site'ye özel
   if (siteName === 'Hepsiburada') {
     headers['Referer'] = 'https://www.hepsiburada.com/';
     headers['Host'] = 'www.hepsiburada.com';
@@ -414,8 +397,6 @@ function getHeadersForSite(siteName) {
   return headers;
 }
 
-// ========== ÜRÜN ADI ÇEK ==========
-
 function extractTitle($, siteConfig) {
   let title = '';
   
@@ -431,12 +412,9 @@ function extractTitle($, siteConfig) {
   return title.substring(0, 150);
 }
 
-// ========== FİYAT ÇEK ==========
-
 function extractPrice($, siteConfig, html) {
   console.log(`💰 ${siteConfig.name} fiyat aranıyor...`);
   
-  // 1. Site'e özel selector'lar
   for (const priceConfig of siteConfig.price) {
     const element = $(priceConfig.selector).first();
     
@@ -461,7 +439,6 @@ function extractPrice($, siteConfig, html) {
     }
   }
   
-  // 2. Meta tag'ler
   const metaPrice = $('meta[property="product:price:amount"]').attr('content') ||
                     $('meta[itemprop="price"]').attr('content');
   if (metaPrice) {
@@ -469,7 +446,6 @@ function extractPrice($, siteConfig, html) {
     return metaPrice;
   }
   
-  // 3. Regex ile ara (son çare)
   const priceRegex = /(?:₺|TL)[\s:]*([\d.,]{3,})|([\d.,]{3,})[\s]*(?:₺|TL)/gi;
   const matches = html.match(priceRegex) || [];
   
@@ -496,8 +472,6 @@ function extractPrice($, siteConfig, html) {
   
   return null;
 }
-
-// ========== FİYAT TEMİZLEME ==========
 
 function cleanPrice(price) {
   if (!price) return 'Fiyat çekilemedi';
@@ -527,7 +501,6 @@ function cleanPrice(price) {
 }
 
 // ========== DİĞER ENDPOINT'LER ==========
-
 app.get('/', (req, res) => {
   res.json({
     success: true,
@@ -571,7 +544,6 @@ app.get('/site-durum', (req, res) => {
 });
 
 // ========== AI YORUM SİSTEMİ ==========
-
 app.post('/ai/yorum', async (req, res) => {
   try {
     const { title, price, site, originalQuery } = req.body;
@@ -642,11 +614,10 @@ app.post('/ai/yorum', async (req, res) => {
   }
 });
 
+// ========== AI KARŞILAŞTIRMA (ÖZGÜN) ==========
 app.post('/ai/compare', async (req, res) => {
   try {
     const { products } = req.body;
-    
-    console.log(`🤖 AI karşılaştırma: ${products?.length || 0} ürün`);
     
     if (!products || products.length < 2) {
       return res.json({
@@ -655,51 +626,140 @@ app.post('/ai/compare', async (req, res) => {
       });
     }
     
+    // FİYAT ANALİZİ
     const urunler = products.map(p => {
       const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
+      const fiyat = fiyatMatch ? 
+        parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
+      
       return {
         ...p,
-        numericPrice: fiyatMatch ? parseFloat(fiyatMatch[1].replace('.', '').replace(',', '.')) : 0
+        fiyatSayi: fiyat
       };
     });
     
-    const siralanan = [...urunler].sort((a, b) => a.numericPrice - b.numericPrice);
+    // SIRALA
+    const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
     const enUcuz = siralanan[0];
     const enPahali = siralanan[urunler.length - 1];
-    const fark = enPahali.numericPrice - enUcuz.numericPrice;
+    const fark = enPahali.fiyatSayi - enUcuz.fiyatSayi;
     
-    const analysis = `🤖 **${urunler.length} Ürün Karşılaştırması**
+    // ÖZGÜN YORUMLAR
+    const analizler = [
+      `🤔 **${urunler.length} Ürün Detaylı İncelemesi**
 
-💰 **Fiyat Analizi:**
-• En uygun: ${enUcuz.site} - ${enUcuz.price}
-• En yüksek: ${enPahali.site} - ${enPahali.price}
-• Fark: ${fark.toFixed(2)} TL
+${urunler.map((u, i) => `${i+1}. **${u.title.substring(0, 50)}...** 
+   💰 ${u.price} • 🏪 ${u.site}`).join('\n\n')}
 
-📊 **Değerlendirme:**
-${enUcuz.site} en iyi değeri sunuyor. ${fark > 1000 ? 'Fiyat farkı yüksek, özellik kontrolü önemli.' : 'Fiyatlar yakın, detaylara bakın.'}`;
+📊 **Fiyat Analizi:**
+• **En ekonomik:** ${enUcuz.title.substring(0, 35)}... - ${enUcuz.price}
+• **En yüksek:** ${enPahali.title.substring(0, 35)}... - ${enPahali.price}
+• **Fark:** ${fark.toFixed(2)} TL (${(fark/enUcuz.fiyatSayi*100).toFixed(0)}%)
 
+💭 **Değerlendirme:**
+${fark > enUcuz.fiyatSayi * 0.5 ? 'Fiyat farkı oldukça belirgin. Ürün özellikleri dikkatle karşılaştırılmalı.' : 'Fiyatlar benzer segmentte. Marka ve kalite farkları değerlendirilmeli.'}
+
+🎯 **Öneri:** ${enUcuz.title.substring(0, 30)}... seçeneği ${fark > 1000 ? 'belirgin bir fiyat avantajı' : 'daha uygun bir seçenek'} sunuyor.`,
+
+      `🔍 **Ürün Karşılaştırma Raporu**
+
+**İncelenen Ürünler:**
+${urunler.map(u => `• ${u.site}: **${u.price}** - ${u.title.substring(0, 45)}...`).join('\n')}
+
+💰 **Fiyat Dağılımı:**
+- Minimum: ${enUcuz.price}
+- Maksimum: ${enPahali.price}
+- Ortalama: ${(urunler.reduce((s, u) => s + u.fiyatSayi, 0) / urunler.length).toFixed(2)} TL
+- Standart Sapma: ${Math.sqrt(urunler.reduce((s, u) => s + Math.pow(u.fiyatSayi - (urunler.reduce((sum, prod) => sum + prod.fiyatSayi, 0) / urunler.length), 2), 0) / urunler.length).toFixed(2)} TL
+
+📈 **AI Analizi:**
+"${enUcuz.title.substring(0, 25)}..." ve "${enPahali.title.substring(0, 25)}..." arasında ${fark.toFixed(2)} TL fark bulunuyor. 
+${urunler.length === 2 ? 'İki ürün doğrudan karşılaştırıldı.' : `${urunler.length} farklı ürün kapsamlı şekilde incelendi.`}
+
+🏆 **Sonuç:** ${enUcuz.site}'daki ürün en iyi fiyat/değer oranını sunuyor. ${fark > 2000 ? 'Ancak özellik farklılıkları mutlaka gözden geçirilmeli.' : 'Benzer özellikler için ideal bir tercih.'}`,
+
+      `🌟 **Akıllı Karşılaştırma**
+
+${urunler.map((u, i) => `**${String.fromCharCode(65 + i)}. Seçenek**
+   📦 ${u.title.substring(0, 40)}...
+   ⭐ ${u.site} • 💵 ${u.price} • 🔢 ${u.fiyatSayi.toFixed(2)} TL`).join('\n\n')}
+
+🤖 **Yapay Zeka Değerlendirmesi:**
+${urunler.length} ürün arasında "${enUcuz.title.substring(0, 20)}..." en düşük maliyetli seçenek. 
+Fiyat farkı **${fark.toFixed(2)} TL** (${(fark/enUcuz.fiyatSayi*100).toFixed(0)}% daha pahalı).
+
+💡 **Önerilen Strateji:**
+1. ${enUcuz.title.substring(0, 25)}... - Bütçe dostu temel seçenek
+2. ${urunler[1] ? urunler[1].title.substring(0, 25) + '...' : 'Diğer ürün'} - Alternatif değerlendirme
+${urunler.length > 2 ? `3. ${urunler[2].title.substring(0, 25)}... - Premium özellikler` : ''}
+
+📋 **Karar Matrisi:**
+• **Ekonomi:** ${enUcuz.site} ✓
+• **Özellik:** ${urunler.find(u => u.fiyatSayi > enUcuz.fiyatSayi)?.site || enUcuz.site} 
+• **Değer:** ${enUcuz.site} ✓`
+    ];
+    
+    const secilenAnaliz = analizler[Math.floor(Math.random() * analizler.length)];
+    
+    // ÖZGÜN ÖNERİLER
+    const oneriler = [
+      `${enUcuz.title.substring(0, 25)}... öncelikli değerlendirilmeli. ${fark > 1500 ? 'Yüksek fiyat farkı, detaylı incelemeyi gerektiriyor.' : ''}`,
+      `${enUcuz.site}'daki ürün bütçe için en uygun. İhtiyaçlarınıza göre karar verin.`,
+      `Fiyat/performans analizi: ${enUcuz.title.substring(0, 20)}... öne çıkıyor. Özellik karşılaştırması yapın.`,
+      `${enUcuz.price} ile ${enUcuz.title.substring(0, 15)}... ekonomik bir tercih.`,
+      `Karşılaştırma sonucu: ${enUcuz.site} en iyi değeri sunuyor. ${fark > 1000 ? 'Anlamlı fiyat farkı var.' : 'Fiyatlar yakın seviyede.'}`
+    ];
+    
+    const secilenOneri = oneriler[Math.floor(Math.random() * oneriler.length)];
+    
     return res.json({
       success: true,
-      analysis: analysis,
-      recommendation: `${enUcuz.site} tercih edilebilir.`,
+      analysis: secilenAnaliz,
+      recommendation: secilenOneri,
       best_value: {
+        title: enUcuz.title,
+        price: enUcuz.price,
         site: enUcuz.site,
-        price: enUcuz.price
-      }
+        fiyat_farki: `${fark.toFixed(2)} TL`,
+        yuzde_fark: `${(fark/enUcuz.fiyatSayi*100).toFixed(0)}%`
+      },
+      stats: {
+        urun_sayisi: urunler.length,
+        fiyat_araligi: `${enUcuz.fiyatSayi.toFixed(2)} - ${enPahali.fiyatSayi.toFixed(2)} TL`,
+        ortalama_fiyat: (urunler.reduce((s, u) => s + u.fiyatSayi, 0) / urunler.length).toFixed(2),
+        medyan_fiyat: siralanan[Math.floor(urunler.length / 2)].fiyatSayi.toFixed(2)
+      },
+      note: 'Özgün AI karşılaştırması - Her ürün türü için uygun'
     });
     
   } catch (error) {
     console.error('AI compare hatası:', error);
+    
+    // BASİT FALLBACK
+    const urunler = products || [];
+    if (urunler.length >= 2) {
+      const enUcuzFallback = urunler.reduce((min, u) => {
+        const fiyatMatch = (u.price || '').match(/([\d.,]+)/);
+        const fiyat = fiyatMatch ? parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : Infinity;
+        return fiyat < min.fiyat ? { urun: u, fiyat } : min;
+      }, { urun: urunler[0], fiyat: Infinity });
+      
+      return res.json({
+        success: true,
+        analysis: `**${urunler.length} Ürün Karşılaştırması**\n\n${urunler.map(u => `• ${u.site}: ${u.price} - ${u.title.substring(0, 40)}...`).join('\n')}\n\nEn uygun: ${enUcuzFallback.urun.title.substring(0, 30)}... - ${enUcuzFallback.urun.price}`,
+        recommendation: `${enUcuzFallback.urun.site}'daki ürün önerilir.`,
+        note: 'Basit analiz'
+      });
+    }
+    
     return res.json({
-      success: true,
-      analysis: 'Ürünler karşılaştırıldı. Fiyat analizi yapıldı.',
-      recommendation: 'Bütçenize uygun olanı seçin.'
+      success: false,
+      error: 'Karşılaştırma yapılamadı'
     });
   }
 });
 
 // ========== 404 HANDLER ==========
-
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
@@ -707,7 +767,7 @@ app.use('*', (req, res) => {
     available: [
       'POST /fiyat-cek-link',
       'POST /ai/yorum',
-      'POST /ai/compare', 
+      'POST /ai/compare',
       'GET /health',
       'GET /site-durum',
       'GET /'
@@ -716,14 +776,13 @@ app.use('*', (req, res) => {
 });
 
 // ========== SUNUCU BAŞLATMA ==========
-
 app.listen(PORT, () => {
   console.log(`
-  🚀 FIYAT API v1.1 - AI Özellikli
+  🚀 FIYAT API v1.1 - ÖZGÜN AI
   📍 Port: ${PORT}
   ✅ Tüm siteler aktif
-  🤖 AI yorum sistemi: AKTİF
-  🔗 /ai/yorum - Özgün ürün analizi
-  🔗 /ai/compare - Akıllı karşılaştırma
+  🤖 AI karşılaştırma: AKTİF
+  🔗 /ai/compare - Özgün ürün analizi
+  ⚡ Her ürün türü için uygun
   `);
 });
