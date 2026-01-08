@@ -61,18 +61,23 @@ const WORKING_SITES = {
   },
   
   // ÇALIŞMAYAN SİTELER (DÜZELTİLECEK)
-  'hepsiburada.com': {
-    name: 'Hepsiburada',
-    working: false,
-    title: ['h1[data-bind="text: productName"]', 'h1.product-name'],
-    price: [
-      { selector: '#offering-price', type: 'text' },
-      { selector: '.price', type: 'text' },
-      { selector: '.product-price', type: 'text' },
-      { selector: '[itemprop="price"]', type: 'attr', attr: 'content' }
-    ],
-    problem: 'Selector değişmiş olabilir'
-  },
+  // server.js'de sadece bu kısmı değiştirin:
+'hepsiburada.com': {
+  name: 'Hepsiburada',
+  working: true,  // ✅ true yap
+  title: [
+    'h1[data-bind="text: productName"]',
+    'h1.product-name',
+    '#product-name',
+    '[data-test-id="product-name"]'  // EN GÜNCEL
+  ],
+  price: [
+    { selector: '#offering-price', type: 'text' },
+    { selector: '[data-bind="markupText: currentPriceBeforePoint"]', type: 'text' },
+    { selector: '[data-test-id="price-current"]', type: 'text' },  // EN GÜNCEL
+    { selector: '[itemprop="price"]', type: 'attr', attr: 'content' }
+  ]
+},
   
   'n11.com': {
     name: 'n11',
