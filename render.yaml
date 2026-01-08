@@ -1,7 +1,10 @@
 services:
   - type: web
-    name: fiyattakip-api
+    name: fiyattakip-api  # ✅ DOĞRU: "fiyattakip"
     env: node
     buildCommand: npm install
     startCommand: node server.js
-    nodeVersion: 20.18.0
+    nodeVersion: 18.0.0  # 20 yerine 18 daha stabil
+    envVars:
+      - key: NODE_ENV
+        value: production
