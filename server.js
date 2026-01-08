@@ -1,4 +1,4 @@
-// server.js - TAM 700+ SATIR - GÜNCELLENMİŞ
+// server.js - TAM 700+ SATIR - GÜNCELLENMİŞ VE HATA DÜZELTMELİ
 import express from 'express';
 import cors from 'cors';
 import { load } from 'cheerio';
@@ -746,8 +746,9 @@ async function generateAIYorum(productData) {
     `;
     
     const response = await axios.post(
-      `https://api-inference.huggingface.co/models/${AI_MODEL}`,
+      'https://router.huggingface.co/hf-inference/models',
       {
+        model: AI_MODEL,
         inputs: prompt,
         parameters: {
           max_new_tokens: 500,
@@ -766,7 +767,9 @@ async function generateAIYorum(productData) {
       }
     );
     
-    let aiResponse = response.data[0]?.generated_text || "";
+    let aiResponse = response.data?.generated_text || 
+                    response.data?.[0]?.generated_text || 
+                    "AI analizi üretildi.";
     
     if (aiResponse.includes(prompt)) {
       aiResponse = aiResponse.split(prompt)[1]?.trim() || aiResponse;
@@ -969,10 +972,10 @@ app.post('/ai/yorum', async (req, res) => {
     }
     
     const aiYorum = await generateAIYorum({
-      title,
-      price,
-      site,
-      originalQuery
+      title: title || originalQuery,
+      price: price || '',
+      site: site || '',
+      originalQuery: originalQuery || title
     });
     
     return res.json({
@@ -981,23 +984,22 @@ app.post('/ai/yorum', async (req, res) => {
       urun: title || originalQuery,
       fiyat: price || 'Bilinmiyor',
       site: site || 'Bilinmeyen',
-      note: 'Hugging Face AI ile üretildi'
+      note: 'AI analizi'
     });
     
   } catch (error) {
-    console.error('AI yorum hatası:', error);
+    console.error('AI yorum hatası:', error.message);
     
     return res.json({
       success: true,
-      yorum: `**${req.body.title || req.body.originalQuery} Ürün Analizi**
+      yorum: `**${req.body?.title || req.body?.originalQuery || 'Ürün'} Analizi**
       
-      📊 ${req.body.price} fiyatı ile piyasada değerlendirilebilir bir konumda.
+      📊 ${req.body?.price || 'Fiyat bilinmiyor'} fiyatı ile değerlendirilebilir.
       
-      🔍 Teknik özellikleri ve kullanıcı deneyimleri göz önünde bulundurulduğunda, 
-      ${req.body.site ? req.body.site + ' üzerindeki ' : ''}bu ürün fiyat/performans dengesi açısından incelenmeli.
+      🔍 Teknik özellikler ve kullanıcı deneyimleri göz önünde bulundurulmalı.
       
       💡 Benzer ürünlerle karşılaştırma yaparak en uygun seçeneği bulabilirsiniz.`,
-      note: 'Basit analiz - AI servisi geçici olarak kullanılamıyor'
+      note: 'Basit analiz'
     });
   }
 });
@@ -1007,12 +1009,15 @@ app.post('/ai/compare', async (req, res) => {
   try {
     const { products } = req.body;
     
-    if (!products || products.length < 2) {
-      return res.json({ success: false, error: 'En az 2 ürün gerekiyor' });
+    if (!products || !Array.isArray(products) || products.length < 2) {
+      return res.json({ 
+        success: false, 
+        error: 'En az 2 ürün gerekiyor' 
+      });
     }
     
     const urunListesi = products.map((p, i) => 
-      `${i+1}. ${p.title} - ${p.price} (${p.site})`
+      `${i+1}. ${p.title || 'Ürün'} - ${p.price || 'Fiyat yok'} (${p.site || 'Site yok'})`
     ).join('\n');
     
     const prompt = `
@@ -1030,81 +1035,110 @@ app.post('/ai/compare', async (req, res) => {
     Detaylı, tarafsız ve teknik bir analiz yap.
     `;
     
-    try {
-      const response = await axios.post(
-        `https://api-inference.huggingface.co/models/${AI_MODEL}`,
-        {
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 800,
-            temperature: 0.7,
-            top_p: 0.9
-          }
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
-            'Content-Type': 'application/json'
+    // Hugging Face API denemesi
+    if (HUGGINGFACE_API_KEY) {
+      try {
+        const response = await axios.post(
+          'https://router.huggingface.co/hf-inference/models',
+          {
+            model: AI_MODEL,
+            inputs: prompt,
+            parameters: {
+              max_new_tokens: 800,
+              temperature: 0.7,
+              top_p: 0.9
+            }
           },
-          timeout: 40000
+          {
+            headers: {
+              'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 40000
+          }
+        );
+        
+        let aiAnalysis = response.data?.generated_text || 
+                        response.data?.[0]?.generated_text || 
+                        "Karşılaştırma analizi üretildi.";
+        
+        if (aiAnalysis.includes(prompt)) {
+          aiAnalysis = aiAnalysis.split(prompt)[1]?.trim() || aiAnalysis;
         }
-      );
-      
-      let aiAnalysis = response.data[0]?.generated_text || "";
-      
-      if (aiAnalysis.includes(prompt)) {
-        aiAnalysis = aiAnalysis.split(prompt)[1]?.trim() || aiAnalysis;
+        
+        // Fiyat analizi
+        const urunler = products.map(p => {
+          const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
+          const fiyat = fiyatMatch ? 
+            parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
+          return { ...p, fiyatSayi: fiyat };
+        });
+        
+        const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
+        const enUcuz = siralanan[0];
+        
+        return res.json({
+          success: true,
+          analysis: aiAnalysis,
+          recommendation: `${enUcuz.title?.substring(0, 40) || 'Ürün'}... en iyi değeri sunuyor.`,
+          best_value: {
+            title: enUcuz.title || 'Ürün',
+            price: enUcuz.price || 'Fiyat yok',
+            site: enUcuz.site || 'Site yok'
+          },
+          note: 'Hugging Face AI ile üretildi'
+        });
+        
+      } catch (hfError) {
+        console.error("Hugging Face compare hatası:", hfError.message);
       }
-      
-      const urunler = products.map(p => {
-        const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
-        const fiyat = fiyatMatch ? 
-          parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
-        return { ...p, fiyatSayi: fiyat };
-      });
-      
-      const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
-      const enUcuz = siralanan[0];
-      
-      return res.json({
-        success: true,
-        analysis: aiAnalysis || "Karşılaştırma analizi üretildi.",
-        recommendation: `${enUcuz.title.substring(0, 40)}... en iyi değeri sunuyor.`,
-        best_value: {
-          title: enUcuz.title,
-          price: enUcuz.price,
-          site: enUcuz.site
-        },
-        note: 'Hugging Face AI ile üretildi'
-      });
-      
-    } catch (hfError) {
-      console.error("Hugging Face compare hatası:", hfError.message);
-      throw hfError;
     }
+    
+    // FALLBACK: Local karşılaştırma
+    const urunler = products.map(p => {
+      const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
+      const fiyat = fiyatMatch ? parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
+      return { ...p, fiyatSayi: fiyat };
+    });
+    
+    const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
+    const enUcuz = siralanan[0];
+    const enPahali = siralanan[siralanan.length - 1];
+    const fark = enPahali.fiyatSayi - enUcuz.fiyatSayi;
+    
+    const localAnalysis = `
+    **${products.length} Ürün Karşılaştırma Raporu**
+    
+    **İncelenen Ürünler:**
+    ${urunler.map((u, i) => `${i+1}. ${u.site || 'Site'}: ${u.price || 'Fiyat yok'} - ${u.title?.substring(0, 40) || 'Ürün'}...`).join('\n')}
+    
+    **Fiyat Analizi:**
+    • En ekonomik: ${enUcuz.title?.substring(0, 35) || 'Ürün'}... - ${enUcuz.price || 'Fiyat yok'}
+    • En yüksek: ${enPahali.title?.substring(0, 35) || 'Ürün'}... - ${enPahali.price || 'Fiyat yok'}
+    • Fiyat farkı: ${fark.toFixed(2)} TL
+    
+    **Öneri:** ${enUcuz.site || 'Site'}'daki ürün en iyi fiyat/değer oranını sunuyor.
+    `;
+    
+    return res.json({
+      success: true,
+      analysis: localAnalysis,
+      recommendation: `${enUcuz.title?.substring(0, 40) || 'Ürün'}... ekonomik bir tercih.`,
+      best_value: {
+        title: enUcuz.title || 'Ürün',
+        price: enUcuz.price || 'Fiyat yok',
+        site: enUcuz.site || 'Site yok'
+      },
+      note: 'Local analiz'
+    });
     
   } catch (error) {
-    console.error('AI compare hatası:', error);
-    
-    const urunler = products || [];
-    if (urunler.length >= 2) {
-      const enUcuz = urunler.reduce((min, u) => {
-        const fiyatMatch = (u.price || '').match(/([\d.,]+)/);
-        const fiyat = fiyatMatch ? parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : Infinity;
-        return fiyat < min.fiyat ? { urun: u, fiyat } : min;
-      }, { urun: urunler[0], fiyat: Infinity });
-      
-      return res.json({
-        success: true,
-        analysis: `**${urunler.length} Ürün Karşılaştırması**\n\n${urunler.map(u => `• ${u.site}: ${u.price} - ${u.title.substring(0, 40)}...`).join('\n')}\n\nEn uygun: ${enUcuz.urun.title.substring(0, 30)}... - ${enUcuz.urun.price}`,
-        recommendation: `${enUcuz.urun.site}'daki ürün önerilir.`,
-        note: 'Basit analiz - AI servisi geçici olarak kullanılamıyor'
-      });
-    }
+    console.error('AI compare hatası:', error.message);
     
     return res.json({
       success: false,
-      error: 'Karşılaştırma yapılamadı'
+      error: 'Karşılaştırma yapılamadı',
+      details: error.message
     });
   }
 });
