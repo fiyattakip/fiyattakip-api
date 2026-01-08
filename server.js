@@ -837,4 +837,355 @@ async function generateLocalAIYorum(productData) {
 
 // ========== FİYAT TEMİZLEME ==========
 function cleanPrice(price) {
-  if (!price) return 'Fiyat çekilemedi
+  if (!price) return 'Fiyat çekilemedi';
+  
+  let formatted = String(price).trim();
+  formatted = formatted.replace(/TL/gi, '₺');
+  formatted = formatted.replace(/\.(?=\d{3})/g, '');
+  
+  const priceMatch = formatted.match(/([\d.,]+)/);
+  if (!priceMatch) return 'Fiyat çekilemedi';
+  
+  const numStr = priceMatch[1];
+  const num = parseFloat(numStr.replace(',', '.'));
+  
+  if (isNaN(num) || num <= 0) {
+    return 'Fiyat çekilemedi';
+  }
+  
+  const formattedNum = new Intl.NumberFormat('tr-TR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(num);
+  
+  return `₺${formattedNum}`;
+}
+
+// ========== ANA ENDPOINT ==========
+app.post('/fiyat-cek-link', async (req, res) => {
+  try {
+    const { url } = req.body;
+    
+    if (!url) {
+      return res.json({ 
+        success: false, 
+        error: 'URL gerekiyor',
+        fiyat: 'Fiyat çekilemedi'
+      });
+    }
+    
+    console.log(`🔗 İstek: ${url}`);
+    
+    let hostname = '';
+    try {
+      const urlObj = new URL(url);
+      hostname = urlObj.hostname.toLowerCase();
+    } catch (e) {
+      return res.json({
+        success: false,
+        error: 'Geçersiz URL',
+        fiyat: 'Fiyat çekilemedi'
+      });
+    }
+    
+    let siteConfig = null;
+    for (const [domain, config] of Object.entries(SITE_CONFIGS)) {
+      if (hostname.includes(domain)) {
+        siteConfig = config;
+        break;
+      }
+    }
+    
+    if (!siteConfig) {
+      const domainName = hostname.replace('www.', '').split('.')[0];
+      siteConfig = {
+        name: domainName.charAt(0).toUpperCase() + domainName.slice(1),
+        working: true,
+        title: ['h1', 'title'],
+        price: [{ selector: '.price', type: 'text' }],
+        jsonLd: true,
+        apiPatterns: []
+      };
+    }
+    
+    console.log(`🏪 Site: ${siteConfig.name}`);
+    
+    const result = await fetchPriceFromUrl(url, siteConfig);
+    
+    if (result && result.price) {
+      const formattedPrice = cleanPrice(result.price);
+      console.log(`✅ BAŞARILI! Fiyat: ${formattedPrice} (Kaynak: ${result.source})`);
+      
+      return res.json({
+        success: true,
+        urun: result.title || 'Ürün',
+        fiyat: formattedPrice,
+        site: siteConfig.name,
+        link: url,
+        source: result.source,
+        timestamp: new Date().toISOString(),
+        note: 'Gerçek fiyat'
+      });
+    } else {
+      console.log(`❌ Fiyat bulunamadı`);
+      
+      return res.json({
+        success: false,
+        error: 'Fiyat bulunamadı',
+        urun: result?.title || 'Ürün',
+        fiyat: 'Fiyat çekilemedi',
+        site: siteConfig.name,
+        link: url,
+        note: 'Site yapısı değişmiş olabilir'
+      });
+    }
+    
+  } catch (error) {
+    console.error('🔥 Kritik hata:', error.message);
+    
+    return res.json({
+      success: false,
+      error: 'Beklenmeyen hata',
+      urun: 'Ürün',
+      fiyat: 'Fiyat çekilemedi',
+      site: 'Bilinmeyen',
+      link: req.body?.url || ''
+    });
+  }
+});
+
+// ========== AI YORUM ENDPOINT ==========
+app.post('/ai/yorum', async (req, res) => {
+  try {
+    const { title, price, site, originalQuery } = req.body;
+    
+    console.log(`🤖 AI YORUM İSTEĞİ: ${originalQuery || title}`);
+    
+    if (!title && !originalQuery) {
+      return res.json({
+        success: false,
+        error: 'Ürün bilgisi gerekiyor'
+      });
+    }
+    
+    const aiYorum = await generateAIYorum({
+      title,
+      price,
+      site,
+      originalQuery
+    });
+    
+    return res.json({
+      success: true,
+      yorum: aiYorum,
+      urun: title || originalQuery,
+      fiyat: price || 'Bilinmiyor',
+      site: site || 'Bilinmeyen',
+      note: 'Hugging Face AI ile üretildi'
+    });
+    
+  } catch (error) {
+    console.error('AI yorum hatası:', error);
+    
+    return res.json({
+      success: true,
+      yorum: `**${req.body.title || req.body.originalQuery} Ürün Analizi**
+      
+      📊 ${req.body.price} fiyatı ile piyasada değerlendirilebilir bir konumda.
+      
+      🔍 Teknik özellikleri ve kullanıcı deneyimleri göz önünde bulundurulduğunda, 
+      ${req.body.site ? req.body.site + ' üzerindeki ' : ''}bu ürün fiyat/performans dengesi açısından incelenmeli.
+      
+      💡 Benzer ürünlerle karşılaştırma yaparak en uygun seçeneği bulabilirsiniz.`,
+      note: 'Basit analiz - AI servisi geçici olarak kullanılamıyor'
+    });
+  }
+});
+
+// ========== AI KARŞILAŞTIRMA ==========
+app.post('/ai/compare', async (req, res) => {
+  try {
+    const { products } = req.body;
+    
+    if (!products || products.length < 2) {
+      return res.json({ success: false, error: 'En az 2 ürün gerekiyor' });
+    }
+    
+    const urunListesi = products.map((p, i) => 
+      `${i+1}. ${p.title} - ${p.price} (${p.site})`
+    ).join('\n');
+    
+    const prompt = `
+    Aşağıdaki ${products.length} ürünü detaylı olarak karşılaştır ve Türkçe analiz yap:
+    
+    ${urunListesi}
+    
+    Analizinde şunları mutlaka içermeli:
+    1. En iyi fiyat/performans oranına sahip ürün
+    2. Her ürünün güçlü ve zayıf yönleri
+    3. Hangi kullanıcı için hangi ürün daha uygun
+    4. Teknik özellik karşılaştırması
+    5. Sonuç ve öneriler
+    
+    Detaylı, tarafsız ve teknik bir analiz yap.
+    `;
+    
+    try {
+      const response = await axios.post(
+        `https://api-inference.huggingface.co/models/${AI_MODEL}`,
+        {
+          inputs: prompt,
+          parameters: {
+            max_new_tokens: 800,
+            temperature: 0.7,
+            top_p: 0.9
+          }
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 40000
+        }
+      );
+      
+      let aiAnalysis = response.data[0]?.generated_text || "";
+      
+      if (aiAnalysis.includes(prompt)) {
+        aiAnalysis = aiAnalysis.split(prompt)[1]?.trim() || aiAnalysis;
+      }
+      
+      const urunler = products.map(p => {
+        const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
+        const fiyat = fiyatMatch ? 
+          parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
+        return { ...p, fiyatSayi: fiyat };
+      });
+      
+      const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
+      const enUcuz = siralanan[0];
+      
+      return res.json({
+        success: true,
+        analysis: aiAnalysis || "Karşılaştırma analizi üretildi.",
+        recommendation: `${enUcuz.title.substring(0, 40)}... en iyi değeri sunuyor.`,
+        best_value: {
+          title: enUcuz.title,
+          price: enUcuz.price,
+          site: enUcuz.site
+        },
+        note: 'Hugging Face AI ile üretildi'
+      });
+      
+    } catch (hfError) {
+      console.error("Hugging Face compare hatası:", hfError.message);
+      throw hfError;
+    }
+    
+  } catch (error) {
+    console.error('AI compare hatası:', error);
+    
+    const urunler = products || [];
+    if (urunler.length >= 2) {
+      const enUcuz = urunler.reduce((min, u) => {
+        const fiyatMatch = (u.price || '').match(/([\d.,]+)/);
+        const fiyat = fiyatMatch ? parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : Infinity;
+        return fiyat < min.fiyat ? { urun: u, fiyat } : min;
+      }, { urun: urunler[0], fiyat: Infinity });
+      
+      return res.json({
+        success: true,
+        analysis: `**${urunler.length} Ürün Karşılaştırması**\n\n${urunler.map(u => `• ${u.site}: ${u.price} - ${u.title.substring(0, 40)}...`).join('\n')}\n\nEn uygun: ${enUcuz.urun.title.substring(0, 30)}... - ${enUcuz.urun.price}`,
+        recommendation: `${enUcuz.urun.site}'daki ürün önerilir.`,
+        note: 'Basit analiz - AI servisi geçici olarak kullanılamıyor'
+      });
+    }
+    
+    return res.json({
+      success: false,
+      error: 'Karşılaştırma yapılamadı'
+    });
+  }
+});
+
+// ========== DİĞER ENDPOINT'LER ==========
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'FiyatTakip AI API v2.0',
+    endpoints: {
+      'POST /fiyat-cek-link': 'Linkten fiyat çek (Gelişmiş sistem)',
+      'POST /ai/yorum': 'AI ürün analizi',
+      'POST /ai/compare': 'AI ürün karşılaştırma',
+      'GET /health': 'Sağlık kontrolü',
+      'GET /site-durum': 'Site durumları'
+    },
+    note: 'Gelişmiş fiyat çekme sistemi aktif - 15+ site destekli'
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'Fiyat API çalışıyor',
+    version: '2.0.0',
+    sites_active: Object.values(SITE_CONFIGS).filter(s => s.working).length,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/site-durum', (req, res) => {
+  const sites = {};
+  
+  for (const [domain, config] of Object.entries(SITE_CONFIGS)) {
+    sites[config.name] = {
+      calisiyor: config.working,
+      domain: domain,
+      jsonLd: config.jsonLd || false,
+      api_support: !!(config.apiPatterns || config.apiUrlPattern)
+    };
+  }
+  
+  res.json({
+    success: true,
+    sites: sites,
+    calisan: Object.values(SITE_CONFIGS).filter(s => s.working).length,
+    toplam: Object.keys(SITE_CONFIGS).length
+  });
+});
+
+// ========== 404 HANDLER ==========
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Endpoint bulunamadı',
+    available: [
+      'POST /fiyat-cek-link',
+      'POST /ai/yorum',
+      'POST /ai/compare',
+      'GET /health',
+      'GET /site-durum',
+      'GET /'
+    ]
+  });
+});
+
+// ========== SUNUCU BAŞLATMA ==========
+app.listen(PORT, () => {
+  console.log(`
+  🚀 FIYAT API v2.0 - TAM SİSTEM
+  📍 Port: ${PORT}
+  ✅ Aktif siteler: ${Object.values(SITE_CONFIGS).filter(s => s.working).length}
+  🔍 Fiyat kaynakları:
+    1. JSON-LD Structured Data
+    2. Microdata (itemprop)
+    3. Open Graph Meta
+    4. CSS Selector
+    5. Site API'leri
+    6. Gelişmiş Regex
+  🤖 AI Model: ${AI_MODEL || 'Local'}
+  ⚡ Her site için optimize edilmiş
+  📊 Toplam satır: 700+
+  `);
+});
