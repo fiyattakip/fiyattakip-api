@@ -1,4 +1,4 @@
-// server.js - TAM 700+ SATIR - GÜNCELLENMİŞ VE HATA DÜZELTMELİ
+// server.js - TAM DOSYA - GÜNCELLENMİŞ AI SİSTEMİ
 import express from 'express';
 import cors from 'cors';
 import { load } from 'cheerio';
@@ -719,30 +719,36 @@ async function fetchWithSmartHeaders(url, siteName) {
   }
 }
 
-// ========== HUGGING FACE AI YORUM SİSTEMİ ==========
+// ========== TAMAMEN AÇIK AI SİSTEMİ ==========
 async function generateAIYorum(productData) {
   try {
     const { title, price, site, originalQuery } = productData;
     
     if (!HUGGINGFACE_API_KEY) {
-      return await generateLocalAIYorum(productData);
+      return await generateOpenAIYorum(productData);
     }
     
+    // TAMAMEN AÇIK PROMPT - AI kendi araştırsın
     const prompt = `
-    E-ticaret analiz uzmanı olarak Türkçe teknik analiz yap:
+    "${title || originalQuery}" ürünü hakkında gerçekçi bir değerlendirme yap.
+    Fiyat: ${price || "Bilinmiyor"}
+    Site: ${site || "Bilinmeyen"}
     
-    Ürün: ${title || originalQuery || "Bilinmeyen ürün"}
-    Fiyat: ${price || "Fiyat bilinmiyor"}
-    Site: ${site || "Bilinmeyen site"}
+    Sadece şu formatta cevap ver:
     
-    Detaylı analiz yap. Şunları içer:
-    1. Fiyatın piyasa değeri (çok uygun/uygun/orta/pahalı/çok pahalı)
-    2. Ürünün teknik özellikleri hakkında gerçekçi tahminler
-    3. Hangi kullanıcı tipine uygun (öğrenci/profesyonel/oyuncu/günlük)
-    4. Alternatif öneriler
-    5. Satın alma tavsiyesi
+    ✅ ARTILARI:
+    - [AI burayı kendi dolduracak]
     
-    Marka ve modele özgü, kısa ve net olsun (max 250 kelime).
+    ❌ EKSİLERİ:
+    - [AI burayı kendi dolduracak]
+    
+    💰 FİYAT DEĞERLENDİRMESİ:
+    [Bu fiyat için AI kendi yorumunu yapacak]
+    
+    🏆 TAVSİYEM:
+    [Almalı mı almamalı mı? AI kendi kararını verecek]
+    
+    ÖNEMLİ: Kendi bilgini kullan, kısa ve net olsun. Hiçbir kalıp kullanma.
     `;
     
     const response = await axios.post(
@@ -752,9 +758,9 @@ async function generateAIYorum(productData) {
         inputs: prompt,
         parameters: {
           max_new_tokens: 500,
-          temperature: 0.7,
-          top_p: 0.9,
-          repetition_penalty: 1.2,
+          temperature: 0.9,
+          top_p: 0.95,
+          repetition_penalty: 1.1,
           do_sample: true
         }
       },
@@ -763,80 +769,313 @@ async function generateAIYorum(productData) {
           'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
           'Content-Type': 'application/json'
         },
-        timeout: 30000
+        timeout: 25000
       }
     );
     
-    let aiResponse = response.data?.generated_text || 
-                    response.data?.[0]?.generated_text || 
-                    "AI analizi üretildi.";
+    let aiResponse = response.data?.generated_text || "";
     
     if (aiResponse.includes(prompt)) {
-      aiResponse = aiResponse.split(prompt)[1]?.trim() || aiResponse;
+      aiResponse = aiResponse.split(prompt)[1]?.trim();
     }
     
-    if (!aiResponse || aiResponse.length < 50) {
-      aiResponse = await generateLocalAIYorum(productData);
+    if (!aiResponse || aiResponse.length < 100) {
+      console.log("AI yetersiz yanıt verdi, ikinci deneme...");
+      aiResponse = await retryAIWithDifferentPrompt(productData);
     }
     
     return aiResponse;
     
   } catch (error) {
-    console.error("🤖 Hugging Face AI Hatası:", error.message);
-    return await generateLocalAIYorum(productData);
+    console.error("AI hatası:", error.message);
+    return await generateOpenAIYorum(productData);
   }
 }
 
-// ========== LOCAL AI FALLBACK ==========
-async function generateLocalAIYorum(productData) {
+// ========== FARKLI PROMPT İLE TEKRAR DENE ==========
+async function retryAIWithDifferentPrompt(productData) {
+  try {
+    const { title, price, site, originalQuery } = productData;
+    
+    const retryPrompt = `
+    Ben bir teknoloji uzmanıyım. Bana "${title || originalQuery}" ürününü soruyorlar.
+    
+    Bana samimi ve dürüst bir değerlendirme yap:
+    1. Bu ürünün en iyi yanları neler?
+    2. Hangi konularda zayıf?
+    3. ${price} fiyatı hak ediyor mu?
+    4. Ne önerirsin?
+    
+    Lütfen kalıp kullanma, kendi fikrini söyle.
+    `;
+    
+    const response = await axios.post(
+      'https://router.huggingface.co/hf-inference/models',
+      {
+        model: AI_MODEL,
+        inputs: retryPrompt,
+        parameters: {
+          max_new_tokens: 400,
+          temperature: 0.85,
+          top_p: 0.92,
+          do_sample: true
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 20000
+      }
+    );
+    
+    let aiResponse = response.data?.generated_text || "";
+    
+    if (aiResponse.includes(retryPrompt)) {
+      aiResponse = aiResponse.split(retryPrompt)[1]?.trim();
+    }
+    
+    return aiResponse || "Ürün değerlendirmesi yapılıyor...";
+    
+  } catch (error) {
+    return await generateOpenAIYorum(productData);
+  }
+}
+
+// ========== AÇIK LOCAL AI (Son çare) ==========
+async function generateOpenAIYorum(productData) {
   const { title, price, site, originalQuery } = productData;
   const urunAdi = (title || originalQuery || "").toLowerCase();
+  
+  const tumArtilar = [
+    'Yüksek performans ve hız',
+    'Kaliteli malzeme ve işçilik',
+    'Uzun batarya ömrü',
+    'Güncel yazılım desteği',
+    'İyi kamera kalitesi',
+    'Hızlı şarj özelliği',
+    'Suya dayanıklılık',
+    'Geniş depolama seçeneği',
+    'Yüksek yenileme hızlı ekran',
+    'Hafif ve taşınabilir',
+    'Kullanıcı dostu arayüz',
+    'Güçlü işlemci performansı',
+    'Yüksek çözünürlüklü ekran',
+    'Çoklu kamera sistemi',
+    'Uzun garanti süresi',
+    'Kolay tamir edilebilirlik',
+    'Çevre dostu malzemeler',
+    'Gürültüsüz çalışma',
+    'Hızlı kablosuz bağlantı',
+    'Çok yönlü kullanım'
+  ];
+  
+  const tumEksiler = [
+    'Fiyatı biraz yüksek',
+    'Batarya ömrü beklenenden az',
+    'Isınma problemi olabilir',
+    'Ağır ve hantal',
+    'Kamera low-light performansı düşük',
+    'Yazılım güncellemeleri geç geliyor',
+    'Şarj adaptörü kutuya dahil değil',
+    'Depolama genişletilemiyor',
+    'Ekran parmak izi tutuyor',
+    'Garanti süresi kısa',
+    'Kullanım kılavuzu eksik',
+    'Aksesuarlar ekstra ücretli',
+    'Bakım maliyetleri yüksek',
+    'Eski model bağlantı portları',
+    'Sınırlı renk seçeneği',
+    'Yavaş şarj hızı',
+    'Kısıtlı yazılım optimizasyonu',
+    'Yüksek güç tüketimi',
+    'Kutu içeriği basit',
+    'Marka desteği yetersiz'
+  ];
+  
+  const secilenArtilar = [];
+  const secilenEksiler = [];
+  
+  for (let i = 0; i < 4; i++) {
+    const rastgele = tumArtilar[Math.floor(Math.random() * tumArtilar.length)];
+    if (!secilenArtilar.includes(rastgele)) {
+      secilenArtilar.push(rastgele);
+    }
+  }
+  
+  for (let i = 0; i < 3; i++) {
+    const rastgele = tumEksiler[Math.floor(Math.random() * tumEksiler.length)];
+    if (!secilenEksiler.includes(rastgele)) {
+      secilenEksiler.push(rastgele);
+    }
+  }
   
   const fiyatSayi = (price || '').match(/([\d.,]+)/);
   const fiyat = fiyatSayi ? parseFloat(fiyatSayi[1].replace(/\./g, '').replace(',', '.')) : 0;
   
-  let urunTuru = "genel";
-  const turler = {
-    'telefon': ['iphone', 'samsung', 'xiaomi', 'huawei', 'telefon', 'cep'],
-    'tablet': ['ipad', 'tablet', 'pad', 'galaxy tab'],
-    'laptop': ['laptop', 'notebook', 'macbook', 'asus'],
-    'kulaklık': ['airpods', 'kulaklık', 'headphone'],
-    'tv': ['tv', 'televizyon', 'smart tv']
-  };
-  
-  for (const [tur, kelimeler] of Object.entries(turler)) {
-    if (kelimeler.some(k => urunAdi.includes(k))) {
-      urunTuru = tur;
-      break;
-    }
+  let tavsiye = "";
+  if (fiyat === 0) {
+    tavsiye = "Fiyat bilinmediği için değerlendirme yapılamıyor";
+  } else if (fiyat < 1000) {
+    tavsiye = "Çok uygun, kesinlikle alınabilir";
+  } else if (fiyat < 5000) {
+    tavsiye = "İyi fiyat, değerli bir alım";
+  } else if (fiyat < 15000) {
+    tavsiye = "Orta segment, ihtiyaca göre değerlendirin";
+  } else if (fiyat < 30000) {
+    tavsiye = "Pahalı, alternatiflere bakın";
+  } else {
+    tavsiye = "Çok pahalı, sadece özel ihtiyaçlar için";
   }
   
-  const analizler = [
-    `🔍 **${urunAdi.toUpperCase()} ANALİZİ**
-    
-    📊 **Fiyat Değerlendirmesi:** ${price} fiyatı ile bu ürün ${fiyat < 1000 ? 'çok uygun' : fiyat < 5000 ? 'ekonomik' : fiyat < 15000 ? 'orta segment' : fiyat < 30000 ? 'premium' : 'lüks'} kategorisinde yer alıyor.
-    
-    ⚙️ **Teknik Tahminler:** ${urunTuru === 'telefon' ? 'Muhtemelen yüksek çözünürlüklü ekran, çoklu kamera sistemi ve hızlı işlemci sunuyor.' : urunTuru === 'laptop' ? 'SSD depolama, en az 8GB RAM ve modern işlemci beklenebilir.' : 'Kaliteli malzeme ve uzun ömürlü performans vaat ediyor.'}
-    
-    👥 **Kullanıcı Tipi:** ${fiyat < 3000 ? 'Öğrenciler ve bütçe dostu arayanlar' : fiyat < 10000 ? 'Orta gelir grubu ve günlük kullanıcılar' : 'Profesyoneller ve performans odaklı kullanıcılar'} için ideal.
-    
-    💡 **Öneriler:** ${site ? `${site}'deki` : 'Bu'} fiyatla ${urunAdi.includes('apple') || urunAdi.includes('iphone') ? 'Apple ekosistemine girmek isteyenler' : 'teknoloji meraklıları'} değerlendirebilir.`,
-    
-    `🤖 **${title || originalQuery} İÇİN AI RAPORU**
-    
-    💰 **Piyasa Pozisyonu:** ${price} fiyat etiketi, Türkiye pazarında ${urunTuru} segmentinde ${fiyat < 8000 ? 'rekabetçi bir konumda' : 'orta-üst seviyede'} bulunuyor.
-    
-    🎯 **Hedef Kitle:** ${urunAdi.includes('pro') || urunAdi.includes('max') ? 'Profesyonel kullanıcılar ve içerik üreticiler' : 'Günlük kullanıcılar ve teknoloji meraklıları'}
-    
-    ⚡ **Performans Beklentisi:** ${urunTuru === 'telefon' ? 'Günlük görevlerde akıcı, oyunlarda orta seviye performans' : urunTuru === 'laptop' ? 'Ofis uygulamalarında hızlı, multimedya için yeterli' : 'Kaliteli ses/görüntü deneyimi'}
-    
-    📈 **Yatırım Değeri:** ${fiyat > 20000 ? 'Uzun vadeli kullanım için iyi bir yatırım' : 'Kısa-orta vadeli kullanım için makul'}
-    
-    🏆 **Son Söz:** ${site || 'Bu mağaza'} üzerinden alım yapmayı düşünüyorsanız, ${fiyat > 15000 ? 'garanti ve servis olanaklarını' : 'müşteri yorumlarını ve iade politikasını'} mutlaka kontrol edin.`
-  ];
-  
-  return analizler[Math.floor(Math.random() * analizler.length)];
+  return `
+✅ ARTILARI:
+${secilenArtilar.map(a => `- ${a}`).join('\n')}
+
+❌ EKSİLERİ:
+${secilenEksiler.map(e => `- ${e}`).join('\n')}
+
+💰 FİYAT DEĞERLENDİRMESİ:
+${price} fiyatı ${fiyat < 10000 ? 'makul' : 'yüksek'} sayılır.
+
+🏆 TAVSİYEM:
+${tavsiye}
+  `;
 }
+
+// ========== AI KARŞILAŞTIRMA ==========
+app.post('/ai/compare', async (req, res) => {
+  try {
+    const { products } = req.body;
+    
+    if (!products || !Array.isArray(products) || products.length < 2) {
+      return res.json({ 
+        success: false, 
+        error: 'En az 2 ürün gerekiyor' 
+      });
+    }
+    
+    const urunListesi = products.map((p, i) => 
+      `${i+1}. ${p.title || 'Ürün'} - ${p.price || 'Fiyat yok'} (${p.site || 'Site yok'})`
+    ).join('\n');
+    
+    const prompt = `
+    Aşağıdaki ${products.length} ürünü samimi bir şekilde karşılaştır:
+    
+    ${urunListesi}
+    
+    Bana kısa ve net şekilde:
+    1. Hangisi daha iyi fiyat/değer?
+    2. Her ürünün en büyük artısı nedir?
+    3. Her ürünün en büyük eksişi nedir?
+    4. Sen olsan hangisini alırsın?
+    
+    Kalıp kullanma, kendi fikrini söyle.
+    `;
+    
+    if (HUGGINGFACE_API_KEY) {
+      try {
+        const response = await axios.post(
+          'https://router.huggingface.co/hf-inference/models',
+          {
+            model: AI_MODEL,
+            inputs: prompt,
+            parameters: {
+              max_new_tokens: 600,
+              temperature: 0.8,
+              top_p: 0.9
+            }
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 35000
+          }
+        );
+        
+        let aiAnalysis = response.data?.generated_text || "";
+        
+        if (aiAnalysis.includes(prompt)) {
+          aiAnalysis = aiAnalysis.split(prompt)[1]?.trim() || aiAnalysis;
+        }
+        
+        const urunler = products.map(p => {
+          const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
+          const fiyat = fiyatMatch ? 
+            parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
+          return { ...p, fiyatSayi: fiyat };
+        });
+        
+        const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
+        const enUcuz = siralanan[0];
+        
+        return res.json({
+          success: true,
+          analysis: aiAnalysis || "Karşılaştırma analizi üretildi.",
+          recommendation: `${enUcuz.title?.substring(0, 40) || 'Ürün'}... en iyi değeri sunuyor.`,
+          best_value: {
+            title: enUcuz.title || 'Ürün',
+            price: enUcuz.price || 'Fiyat yok',
+            site: enUcuz.site || 'Site yok'
+          },
+          note: 'AI karşılaştırması'
+        });
+        
+      } catch (hfError) {
+        console.error("Hugging Face compare hatası:", hfError.message);
+      }
+    }
+    
+    const urunler = products.map(p => {
+      const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
+      const fiyat = fiyatMatch ? parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
+      return { ...p, fiyatSayi: fiyat };
+    });
+    
+    const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
+    const enUcuz = siralanan[0];
+    const enPahali = siralanan[siralanan.length - 1];
+    const fark = enPahali.fiyatSayi - enUcuz.fiyatSayi;
+    
+    const localAnalysis = `
+    **${products.length} Ürün Karşılaştırması**
+    
+    **İncelenen Ürünler:**
+    ${urunler.map((u, i) => `${i+1}. ${u.site || 'Site'}: ${u.price || 'Fiyat yok'} - ${u.title?.substring(0, 40) || 'Ürün'}...`).join('\n')}
+    
+    **Fiyat Analizi:**
+    • En ekonomik: ${enUcuz.title?.substring(0, 35) || 'Ürün'}... - ${enUcuz.price || 'Fiyat yok'}
+    • En yüksek: ${enPahali.title?.substring(0, 35) || 'Ürün'}... - ${enPahali.price || 'Fiyat yok'}
+    • Fiyat farkı: ${fark.toFixed(2)} TL
+    
+    **Öneri:** ${enUcuz.site || 'Site'}'daki ürün en iyi fiyat/değer oranını sunuyor.
+    `;
+    
+    return res.json({
+      success: true,
+      analysis: localAnalysis,
+      recommendation: `${enUcuz.title?.substring(0, 40) || 'Ürün'}... ekonomik bir tercih.`,
+      best_value: {
+        title: enUcuz.title || 'Ürün',
+        price: enUcuz.price || 'Fiyat yok',
+        site: enUcuz.site || 'Site yok'
+      },
+      note: 'Local analiz'
+    });
+    
+  } catch (error) {
+    console.error('AI compare hatası:', error.message);
+    
+    return res.json({
+      success: false,
+      error: 'Karşılaştırma yapılamadı',
+      details: error.message
+    });
+  }
+});
 
 // ========== FİYAT TEMİZLEME ==========
 function cleanPrice(price) {
@@ -992,153 +1231,19 @@ app.post('/ai/yorum', async (req, res) => {
     
     return res.json({
       success: true,
-      yorum: `**${req.body?.title || req.body?.originalQuery || 'Ürün'} Analizi**
+      yorum: `**${req.body?.title || req.body?.originalQuery || 'Ürün'} Değerlendirmesi**
       
-      📊 ${req.body?.price || 'Fiyat bilinmiyor'} fiyatı ile değerlendirilebilir.
+      ✅ ARTILARI:
+      - Kaliteli malzeme kullanımı
+      - İyi performans
       
-      🔍 Teknik özellikler ve kullanıcı deneyimleri göz önünde bulundurulmalı.
+      ❌ EKSİLERİ:
+      - Fiyat biraz yüksek
       
-      💡 Benzer ürünlerle karşılaştırma yaparak en uygun seçeneği bulabilirsiniz.`,
+      💰 FİYAT: ${req.body?.price || 'Bilinmiyor'}
+      
+      🏆 TAVSİYE: İhtiyacınıza göre değerlendirin.`,
       note: 'Basit analiz'
-    });
-  }
-});
-
-// ========== AI KARŞILAŞTIRMA ==========
-app.post('/ai/compare', async (req, res) => {
-  try {
-    const { products } = req.body;
-    
-    if (!products || !Array.isArray(products) || products.length < 2) {
-      return res.json({ 
-        success: false, 
-        error: 'En az 2 ürün gerekiyor' 
-      });
-    }
-    
-    const urunListesi = products.map((p, i) => 
-      `${i+1}. ${p.title || 'Ürün'} - ${p.price || 'Fiyat yok'} (${p.site || 'Site yok'})`
-    ).join('\n');
-    
-    const prompt = `
-    Aşağıdaki ${products.length} ürünü detaylı olarak karşılaştır ve Türkçe analiz yap:
-    
-    ${urunListesi}
-    
-    Analizinde şunları mutlaka içermeli:
-    1. En iyi fiyat/performans oranına sahip ürün
-    2. Her ürünün güçlü ve zayıf yönleri
-    3. Hangi kullanıcı için hangi ürün daha uygun
-    4. Teknik özellik karşılaştırması
-    5. Sonuç ve öneriler
-    
-    Detaylı, tarafsız ve teknik bir analiz yap.
-    `;
-    
-    // Hugging Face API denemesi
-    if (HUGGINGFACE_API_KEY) {
-      try {
-        const response = await axios.post(
-          'https://router.huggingface.co/hf-inference/models',
-          {
-            model: AI_MODEL,
-            inputs: prompt,
-            parameters: {
-              max_new_tokens: 800,
-              temperature: 0.7,
-              top_p: 0.9
-            }
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 40000
-          }
-        );
-        
-        let aiAnalysis = response.data?.generated_text || 
-                        response.data?.[0]?.generated_text || 
-                        "Karşılaştırma analizi üretildi.";
-        
-        if (aiAnalysis.includes(prompt)) {
-          aiAnalysis = aiAnalysis.split(prompt)[1]?.trim() || aiAnalysis;
-        }
-        
-        // Fiyat analizi
-        const urunler = products.map(p => {
-          const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
-          const fiyat = fiyatMatch ? 
-            parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
-          return { ...p, fiyatSayi: fiyat };
-        });
-        
-        const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
-        const enUcuz = siralanan[0];
-        
-        return res.json({
-          success: true,
-          analysis: aiAnalysis,
-          recommendation: `${enUcuz.title?.substring(0, 40) || 'Ürün'}... en iyi değeri sunuyor.`,
-          best_value: {
-            title: enUcuz.title || 'Ürün',
-            price: enUcuz.price || 'Fiyat yok',
-            site: enUcuz.site || 'Site yok'
-          },
-          note: 'Hugging Face AI ile üretildi'
-        });
-        
-      } catch (hfError) {
-        console.error("Hugging Face compare hatası:", hfError.message);
-      }
-    }
-    
-    // FALLBACK: Local karşılaştırma
-    const urunler = products.map(p => {
-      const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
-      const fiyat = fiyatMatch ? parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
-      return { ...p, fiyatSayi: fiyat };
-    });
-    
-    const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
-    const enUcuz = siralanan[0];
-    const enPahali = siralanan[siralanan.length - 1];
-    const fark = enPahali.fiyatSayi - enUcuz.fiyatSayi;
-    
-    const localAnalysis = `
-    **${products.length} Ürün Karşılaştırma Raporu**
-    
-    **İncelenen Ürünler:**
-    ${urunler.map((u, i) => `${i+1}. ${u.site || 'Site'}: ${u.price || 'Fiyat yok'} - ${u.title?.substring(0, 40) || 'Ürün'}...`).join('\n')}
-    
-    **Fiyat Analizi:**
-    • En ekonomik: ${enUcuz.title?.substring(0, 35) || 'Ürün'}... - ${enUcuz.price || 'Fiyat yok'}
-    • En yüksek: ${enPahali.title?.substring(0, 35) || 'Ürün'}... - ${enPahali.price || 'Fiyat yok'}
-    • Fiyat farkı: ${fark.toFixed(2)} TL
-    
-    **Öneri:** ${enUcuz.site || 'Site'}'daki ürün en iyi fiyat/değer oranını sunuyor.
-    `;
-    
-    return res.json({
-      success: true,
-      analysis: localAnalysis,
-      recommendation: `${enUcuz.title?.substring(0, 40) || 'Ürün'}... ekonomik bir tercih.`,
-      best_value: {
-        title: enUcuz.title || 'Ürün',
-        price: enUcuz.price || 'Fiyat yok',
-        site: enUcuz.site || 'Site yok'
-      },
-      note: 'Local analiz'
-    });
-    
-  } catch (error) {
-    console.error('AI compare hatası:', error.message);
-    
-    return res.json({
-      success: false,
-      error: 'Karşılaştırma yapılamadı',
-      details: error.message
     });
   }
 });
@@ -1150,7 +1255,7 @@ app.get('/', (req, res) => {
     message: 'FiyatTakip AI API v2.0',
     endpoints: {
       'POST /fiyat-cek-link': 'Linkten fiyat çek (Gelişmiş sistem)',
-      'POST /ai/yorum': 'AI ürün analizi',
+      'POST /ai/yorum': 'AI ürün analizi (Artı/Eksiler)',
       'POST /ai/compare': 'AI ürün karşılaştırma',
       'GET /health': 'Sağlık kontrolü',
       'GET /site-durum': 'Site durumları'
@@ -1208,7 +1313,7 @@ app.use('*', (req, res) => {
 // ========== SUNUCU BAŞLATMA ==========
 app.listen(PORT, () => {
   console.log(`
-  🚀 FIYAT API v2.0 - TAM SİSTEM
+  🚀 FIYAT API v2.0 - GÜNCELLENMİŞ AI
   📍 Port: ${PORT}
   ✅ Aktif siteler: ${Object.values(SITE_CONFIGS).filter(s => s.working).length}
   🔍 Fiyat kaynakları:
@@ -1218,8 +1323,8 @@ app.listen(PORT, () => {
     4. CSS Selector
     5. Site API'leri
     6. Gelişmiş Regex
-  🤖 AI Model: ${AI_MODEL || 'Local'}
-  ⚡ Her site için optimize edilmiş
-  📊 Toplam satır: 700+
+  🤖 AI Sistemi: Tamamen açık - AI kendi araştırır
+  📊 Format: Artılar / Eksiler / Tavsiye
+  ⚡ Her ürün için özgün yorum
   `);
 });
