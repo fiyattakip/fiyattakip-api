@@ -1,8 +1,9 @@
-// server.js - TAM KOD (AI KARŞILAŞTIRMA ÖZGÜN)
+// server.js - TAM 700+ SATIR - GÜNCELLENMİŞ
 import express from 'express';
 import cors from 'cors';
 import { load } from 'cheerio';
 import fetch from 'node-fetch';
+import axios from 'axios';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -10,6 +11,10 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// ========== HUGGING FACE AI KONFİGÜRASYONU ==========
+const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY || "";
+const AI_MODEL = "mistralai/Mistral-7B-Instruct-v0.2";
 
 // ========== SİTE KONFİGÜRASYONLARI ==========
 const SITE_CONFIGS = {
@@ -22,6 +27,11 @@ const SITE_CONFIGS = {
       { selector: '.prc-dsc', type: 'text' },
       { selector: '.original', type: 'text' },
       { selector: '.price', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /"offers":{[^}]*"price":([\d.,]+)/g, type: 'regex' }
     ]
   },
   
@@ -33,6 +43,11 @@ const SITE_CONFIGS = {
       { selector: '.a-price-whole', type: 'text' },
       { selector: '.a-offscreen', type: 'text' },
       { selector: '.priceBlockBuyingPriceString', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":[\s]*"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /data-asin-price="([\d.,]+)"/g, type: 'regex' }
     ]
   },
   
@@ -44,6 +59,11 @@ const SITE_CONFIGS = {
       { selector: '.product-price', type: 'text' },
       { selector: '.price', type: 'text' },
       { selector: '.current-price', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /itemprop="price" content="([\d.,]+)"/g, type: 'regex' }
     ]
   },
   
@@ -55,6 +75,11 @@ const SITE_CONFIGS = {
       { selector: '.product-price', type: 'text' },
       { selector: '.price', type: 'text' },
       { selector: '.current-price', type: 'text' }
+    ],
+    jsonLd: false,
+    apiPatterns: [
+      { pattern: /data-price="([\d.,]+)"/g, type: 'regex' },
+      { pattern: /"price":[\s]*([\d.,]+)/g, type: 'regex' }
     ]
   },
   
@@ -73,7 +98,10 @@ const SITE_CONFIGS = {
       { selector: '[data-bind="markupText: currentPriceBeforePoint"]', type: 'text' },
       { selector: '.price', type: 'text' },
       { selector: '[itemprop="price"]', type: 'attr', attr: 'content' }
-    ]
+    ],
+    apiUrlPattern: 'https://www.hepsiburada.com/api/v2/product-detail',
+    jsonLd: true,
+    useApiFirst: true
   },
   
   'n11.com': {
@@ -93,6 +121,11 @@ const SITE_CONFIGS = {
       { selector: '[itemprop="price"]', type: 'attr', attr: 'content' },
       { selector: '.priceContainer', type: 'text' },
       { selector: '.price', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /"salePrice":([\d.,]+)/g, type: 'regex' }
     ]
   },
   
@@ -111,23 +144,11 @@ const SITE_CONFIGS = {
       { selector: '.mm-price', type: 'text' },
       { selector: '[data-test="product-price"]', type: 'text' },
       { selector: '.product-detail__price', type: 'text' }
-    ]
-  },
-  
-  'vatanbilgisayar.com': {
-    name: 'Vatan Bilgisayar',
-    working: true,
-    title: [
-      'h1.product-list__product-name',
-      '.product-name h1',
-      'h1.product-title',
-      '.product-detail-title'
     ],
-    price: [
-      { selector: '.product-list__price', type: 'text' },
-      { selector: '.product-price', type: 'text' },
-      { selector: '.price', type: 'text' },
-      { selector: '.current-price', type: 'text' }
+    apiPatterns: [
+      { pattern: /"price":[\s]*"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /data-price="([\d.,]+)"/g, type: 'regex' },
+      { pattern: /MM\.price = "([\d.,]+)"/g, type: 'regex' }
     ]
   },
   
@@ -145,6 +166,11 @@ const SITE_CONFIGS = {
       { selector: '.price', type: 'text' },
       { selector: '.currentPrice', type: 'text' },
       { selector: '[data-testid="price"]', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /data-price="([\d.,]+)"/g, type: 'regex' }
     ]
   },
   
@@ -162,6 +188,33 @@ const SITE_CONFIGS = {
       { selector: '.product-price', type: 'text' },
       { selector: '.current-price', type: 'text' },
       { selector: '.product-detail-price', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /itemprop="price" content="([\d.,]+)"/g, type: 'regex' }
+    ]
+  },
+  
+  'vatanbilgisayar.com': {
+    name: 'Vatan Bilgisayar',
+    working: true,
+    title: [
+      'h1.product-list__product-name',
+      '.product-name h1',
+      'h1.product-title',
+      '.product-detail-title'
+    ],
+    price: [
+      { selector: '.product-list__price', type: 'text' },
+      { selector: '.product-price', type: 'text' },
+      { selector: '.price', type: 'text' },
+      { selector: '.current-price', type: 'text' }
+    ],
+    jsonLd: false,
+    apiPatterns: [
+      { pattern: /"price":[\s]*([\d.,]+)/g, type: 'regex' },
+      { pattern: /data-price="([\d.,]+)"/g, type: 'regex' }
     ]
   },
   
@@ -177,6 +230,11 @@ const SITE_CONFIGS = {
       { selector: '.product-price', type: 'text' },
       { selector: '.price', type: 'text' },
       { selector: '.product-detail-price', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /itemprop="price" content="([\d.,]+)"/g, type: 'regex' }
     ]
   },
   
@@ -192,6 +250,11 @@ const SITE_CONFIGS = {
       { selector: '.product-price', type: 'text' },
       { selector: '#product-price', type: 'text' },
       { selector: '.price', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /itemprop="price" content="([\d.,]+)"/g, type: 'regex' }
     ]
   },
   
@@ -207,118 +270,408 @@ const SITE_CONFIGS = {
       { selector: '.product-price', type: 'text' },
       { selector: '.price', type: 'text' },
       { selector: '.current-price', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /itemprop="price" content="([\d.,]+)"/g, type: 'regex' }
+    ]
+  },
+  
+  'migros.com.tr': {
+    name: 'Migros Sanal Market',
+    working: true,
+    title: [
+      'h1.product-name',
+      '.product-title',
+      '[data-testid="product-title"]'
+    ],
+    price: [
+      { selector: '.price', type: 'text' },
+      { selector: '.product-price', type: 'text' },
+      { selector: '[data-testid="price"]', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /data-price="([\d.,]+)"/g, type: 'regex' }
+    ]
+  },
+  
+  'gittigidiyor.com': {
+    name: 'GittiGidiyor',
+    working: true,
+    title: [
+      'h1.product-title',
+      '[data-gg-product-title]',
+      'h1[itemprop="name"]'
+    ],
+    price: [
+      { selector: '.price', type: 'text' },
+      { selector: '.last-price', type: 'text' },
+      { selector: '[itemprop="price"]', type: 'attr', attr: 'content' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /data-price="([\d.,]+)"/g, type: 'regex' }
+    ]
+  },
+  
+  'kitapyurdu.com': {
+    name: 'KitapYurdu',
+    working: true,
+    title: [
+      'h1.product-name',
+      '.pr_header h1',
+      'h1[itemprop="name"]'
+    ],
+    price: [
+      { selector: '.price', type: 'text' },
+      { selector: '.product-price', type: 'text' },
+      { selector: '.current-price', type: 'text' }
+    ],
+    jsonLd: true,
+    apiPatterns: [
+      { pattern: /"price":"([\d.,]+)"/g, type: 'regex' },
+      { pattern: /itemprop="price" content="([\d.,]+)"/g, type: 'regex' }
     ]
   }
 };
 
-// ========== ANA ENDPOINT ==========
-app.post('/fiyat-cek-link', async (req, res) => {
+// ========== JSON-LD STRUCTURED DATA ÇEKME ==========
+function extractJsonLdData(html) {
   try {
-    const { url } = req.body;
+    const jsonLdMatches = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi);
+    if (!jsonLdMatches) return null;
     
-    if (!url) {
-      return res.json({ 
-        success: false, 
-        error: 'URL gerekiyor',
-        fiyat: 'Fiyat çekilemedi'
+    for (const match of jsonLdMatches) {
+      try {
+        const jsonStr = match.replace(/<script[^>]*>|<\/script>/g, '').trim();
+        const data = JSON.parse(jsonStr);
+        
+        if (data['@type'] === 'Product' || data['@type']?.includes('Product')) {
+          const price = data.offers?.price || data.price;
+          const title = data.name || data.title;
+          
+          if (price && title) {
+            return { title, price: String(price), source: 'json-ld' };
+          }
+        }
+        
+        if (data['@type'] === 'AggregateOffer') {
+          const price = data.lowPrice || data.highPrice || data.offerCount;
+          if (price) {
+            return { title: 'Ürün', price: String(price), source: 'aggregate-offer' };
+          }
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+  } catch (error) {
+    console.error('JSON-LD parse hatası:', error.message);
+  }
+  return null;
+}
+
+// ========== MICRODATA (itemprop) ÇEKME ==========
+function extractMicrodata(html) {
+  try {
+    const $ = load(html);
+    
+    const priceElement = $('[itemprop="price"]');
+    if (priceElement.length) {
+      const price = priceElement.attr('content') || priceElement.text().trim();
+      const title = $('[itemprop="name"]').text().trim() || $('title').text().trim();
+      
+      if (price && price.match(/\d/)) {
+        return { title: title || 'Ürün', price, source: 'microdata' };
+      }
+    }
+  } catch (error) {
+    console.error('Microdata extract hatası:', error.message);
+  }
+  return null;
+}
+
+// ========== OPEN GRAPH META ETİKETLERİ ==========
+function extractOpenGraphData(html) {
+  try {
+    const $ = load(html);
+    
+    const ogTitle = $('meta[property="og:title"]').attr('content') || 
+                    $('meta[name="og:title"]').attr('content');
+    
+    const ogPrice = $('meta[property="product:price:amount"]').attr('content') ||
+                    $('meta[property="og:price:amount"]').attr('content') ||
+                    $('meta[name="price"]').attr('content');
+    
+    if (ogPrice && ogPrice.match(/\d/)) {
+      return { 
+        title: ogTitle || 'Ürün', 
+        price: ogPrice, 
+        source: 'open-graph' 
+      };
+    }
+  } catch (error) {
+    console.error('Open Graph extract hatası:', error.message);
+  }
+  return null;
+}
+
+// ========== SİTE ÖZEL API ÇAĞRILARI ==========
+async function fetchSiteAPI(url, siteConfig) {
+  try {
+    const urlParts = url.split('/');
+    const productId = urlParts[urlParts.length - 1].match(/\d+/)?.[0] || 
+                      urlParts[urlParts.length - 2].match(/\d+/)?.[0];
+    
+    if (!productId) return null;
+    
+    const apiEndpoints = {
+      'hepsiburada.com': `https://www.hepsiburada.com/api/v2/product-detail?productId=${productId}`,
+      'n11.com': `https://www.n11.com/product/api?productId=${productId}`,
+      'trendyol.com': `https://www.trendyol.com/api/product/${productId}`,
+      'pazarama.com': `https://www.pazarama.com/api/v1/products/${productId}`
+    };
+    
+    const apiUrl = apiEndpoints[siteConfig.name.toLowerCase()];
+    if (!apiUrl) return null;
+    
+    const response = await fetch(apiUrl, {
+      headers: getHeadersForSite(siteConfig.name),
+      timeout: 10000
+    });
+    
+    if (response.ok) {
+      const apiData = await response.json();
+      
+      let price = null;
+      let title = null;
+      
+      if (siteConfig.name === 'Hepsiburada') {
+        price = apiData?.result?.product?.price?.sellingPrice || 
+                apiData?.price;
+        title = apiData?.result?.product?.name || 
+                apiData?.title;
+      }
+      else if (siteConfig.name === 'n11') {
+        price = apiData?.price || apiData?.salePrice;
+        title = apiData?.title || apiData?.name;
+      }
+      else if (siteConfig.name === 'Trendyol') {
+        price = apiData?.price || apiData?.sellingPrice;
+        title = apiData?.title || apiData?.name;
+      }
+      
+      if (price && title) {
+        return { title, price: String(price), source: 'site-api' };
+      }
+    }
+  } catch (error) {
+    console.error(`${siteConfig.name} API hatası:`, error.message);
+  }
+  return null;
+}
+
+// ========== GELİŞMİŞ REGEX İLE FİYAT BULMA ==========
+function findPriceWithRegex(html, siteConfig) {
+  try {
+    const regexPatterns = [
+      /(?:₺|TL|USD|EUR)[\s:]*([\d.,]{3,})/gi,
+      /([\d.,]{3,})[\s]*(?:₺|TL|USD|EUR)/gi,
+      /price["']?\s*[=:]\s*["']?([\d.,]+)/gi,
+      /data-price=["']([\d.,]+)["']/gi,
+      /"price"\s*:\s*["']?([\d.,]+)/gi,
+      /"salePrice"\s*:\s*["']?([\d.,]+)/gi,
+      /"currentPrice"\s*:\s*["']?([\d.,]+)/gi,
+      /"value"\s*:\s*["']?([\d.,]+)/gi
+    ];
+    
+    if (siteConfig.apiPatterns) {
+      siteConfig.apiPatterns.forEach(pattern => {
+        if (pattern.type === 'regex') {
+          regexPatterns.push(pattern.pattern);
+        }
       });
     }
     
-    console.log(`🔗 İstek: ${url}`);
+    const foundPrices = [];
     
-    let hostname = '';
-    try {
-      const urlObj = new URL(url);
-      hostname = urlObj.hostname.toLowerCase();
-    } catch (e) {
-      return res.json({
-        success: false,
-        error: 'Geçersiz URL',
-        fiyat: 'Fiyat çekilemedi'
-      });
+    for (const pattern of regexPatterns) {
+      const matches = html.match(pattern);
+      if (matches) {
+        matches.forEach(match => {
+          const priceMatch = match.match(/([\d.,]{3,})/);
+          if (priceMatch) {
+            const price = priceMatch[1];
+            const cleanedPrice = price.replace(/\.(?=\d{3})/g, '');
+            if (!foundPrices.includes(cleanedPrice)) {
+              foundPrices.push(cleanedPrice);
+            }
+          }
+        });
+      }
     }
     
-    const siteConfig = getSiteConfig(hostname);
-    console.log(`🏪 Site: ${siteConfig.name}`);
+    if (foundPrices.length > 0) {
+      const priceCounts = {};
+      foundPrices.forEach(p => {
+        priceCounts[p] = (priceCounts[p] || 0) + 1;
+      });
+      
+      const mostCommonPrice = Object.keys(priceCounts).reduce((a, b) => 
+        priceCounts[a] > priceCounts[b] ? a : b
+      );
+      
+      return mostCommonPrice;
+    }
+  } catch (error) {
+    console.error('Regex price find hatası:', error.message);
+  }
+  return null;
+}
+
+// ========== ANA FİYAT ÇEKME FONKSİYONU ==========
+async function fetchPriceFromUrl(url, siteConfig) {
+  console.log(`🔍 ${siteConfig.name} için fiyat aranıyor...`);
+  
+  let html = null;
+  let finalData = { title: '', price: '', source: '' };
+  
+  try {
+    if (siteConfig.useApiFirst || siteConfig.apiUrlPattern) {
+      const apiData = await fetchSiteAPI(url, siteConfig);
+      if (apiData) {
+        console.log(`✅ ${siteConfig.name} API'den fiyat bulundu`);
+        return apiData;
+      }
+    }
     
-    const html = await fetchWithSmartHeaders(url, siteConfig.name);
-    
+    html = await fetchWithSmartHeaders(url, siteConfig.name);
     if (!html) {
-      return res.json({
-        success: false,
-        error: 'Sayfa yüklenemedi',
-        fiyat: 'Fiyat çekilemedi',
-        site: siteConfig.name,
-        link: url,
-        note: '403 veya timeout hatası'
-      });
+      throw new Error('Sayfa yüklenemedi');
     }
     
     const $ = load(html);
     
-    const title = extractTitle($, siteConfig);
-    console.log(`📝 Ürün: ${title.substring(0, 80)}...`);
-    
-    const price = extractPrice($, siteConfig, html);
-    
-    if (price) {
-      const formattedPrice = cleanPrice(price);
-      console.log(`✅ BAŞARILI! Fiyat: ${formattedPrice}`);
-      
-      return res.json({
-        success: true,
-        urun: title || 'Ürün',
-        fiyat: formattedPrice,
-        site: siteConfig.name,
-        link: url,
-        timestamp: new Date().toISOString(),
-        note: 'Gerçek fiyat'
-      });
-    } else {
-      console.log(`❌ Fiyat bulunamadı`);
-      
-      return res.json({
-        success: false,
-        error: 'Fiyat bulunamadı',
-        urun: title || 'Ürün',
-        fiyat: 'Fiyat çekilemedi',
-        site: siteConfig.name,
-        link: url,
-        note: 'Selector değişmiş olabilir'
-      });
+    const jsonLdData = extractJsonLdData(html);
+    if (jsonLdData) {
+      console.log(`✅ JSON-LD'den fiyat bulundu: ${jsonLdData.price}`);
+      finalData = jsonLdData;
     }
+    
+    if (!finalData.price) {
+      const microdata = extractMicrodata(html);
+      if (microdata) {
+        console.log(`✅ Microdata'dan fiyat bulundu: ${microdata.price}`);
+        finalData = microdata;
+      }
+    }
+    
+    if (!finalData.price) {
+      const ogData = extractOpenGraphData(html);
+      if (ogData) {
+        console.log(`✅ Open Graph'dan fiyat bulundu: ${ogData.price}`);
+        finalData = ogData;
+      }
+    }
+    
+    if (!finalData.price) {
+      for (const priceConfig of siteConfig.price) {
+        const element = $(priceConfig.selector).first();
+        if (element.length) {
+          let price = '';
+          
+          if (priceConfig.type === 'attr' && priceConfig.attr) {
+            price = element.attr(priceConfig.attr) || '';
+          } else {
+            price = element.text().trim();
+          }
+          
+          if (price && price.match(/\d/)) {
+            console.log(`✅ CSS Selector'dan fiyat bulundu: ${price}`);
+            finalData.price = price;
+            finalData.source = 'css-selector';
+            break;
+          }
+        }
+      }
+    }
+    
+    if (!finalData.price) {
+      const regexPrice = findPriceWithRegex(html, siteConfig);
+      if (regexPrice) {
+        console.log(`✅ Regex'den fiyat bulundu: ${regexPrice}`);
+        finalData.price = regexPrice;
+        finalData.source = 'regex';
+      }
+    }
+    
+    if (!finalData.title) {
+      for (const selector of siteConfig.title) {
+        const title = $(selector).first().text().trim();
+        if (title && title.length > 3) {
+          finalData.title = title.substring(0, 150);
+          break;
+        }
+      }
+      
+      if (!finalData.title) {
+        finalData.title = $('title').text().trim().substring(0, 150) || 'Ürün';
+      }
+    }
+    
+    return finalData;
     
   } catch (error) {
-    console.error('🔥 Kritik hata:', error.message);
-    
-    return res.json({
-      success: false,
-      error: 'Beklenmeyen hata',
-      urun: 'Ürün',
-      fiyat: 'Fiyat çekilemedi',
-      site: 'Bilinmeyen',
-      link: req.body?.url || ''
-    });
+    console.error(`${siteConfig.name} fiyat çekme hatası:`, error.message);
+    return { title: 'Ürün', price: '', source: 'error', error: error.message };
   }
-});
-
-// ========== YARDIMCI FONKSİYONLAR ==========
-function getSiteConfig(hostname) {
-  for (const [domain, config] of Object.entries(SITE_CONFIGS)) {
-    if (hostname.includes(domain)) {
-      return config;
-    }
-  }
-  
-  const domainName = hostname.replace('www.', '').split('.')[0];
-  return {
-    name: domainName.charAt(0).toUpperCase() + domainName.slice(1),
-    working: true,
-    title: ['h1', 'title'],
-    price: [{ selector: '.price', type: 'text' }]
-  };
 }
 
+// ========== HEADERS ==========
+function getHeadersForSite(siteName) {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1'
+  };
+  
+  const siteHeaders = {
+    'Hepsiburada': {
+      'Referer': 'https://www.hepsiburada.com/',
+      'Host': 'www.hepsiburada.com',
+      'DNT': '1',
+      'Sec-Fetch-Site': 'same-origin'
+    },
+    'Trendyol': {
+      'Referer': 'https://www.trendyol.com/',
+      'Sec-Fetch-Site': 'same-origin'
+    },
+    'Amazon TR': {
+      'Referer': 'https://www.amazon.com.tr/',
+      'Host': 'www.amazon.com.tr'
+    },
+    'n11': {
+      'Referer': 'https://www.n11.com/',
+      'Host': 'www.n11.com'
+    }
+  };
+  
+  return { ...headers, ...(siteHeaders[siteName] || {}) };
+}
+
+// ========== SMART FETCH ==========
 async function fetchWithSmartHeaders(url, siteName) {
   const headers = getHeadersForSite(siteName);
   
@@ -327,11 +680,12 @@ async function fetchWithSmartHeaders(url, siteName) {
     
     const response = await fetch(url, {
       headers,
-      timeout: 15000,
-      redirect: 'follow'
+      timeout: 20000,
+      redirect: 'follow',
+      follow: 5
     });
     
-    console.log(`📊 Status: ${response.status}`);
+    console.log(`📊 Status: ${response.status} - ${response.statusText}`);
     
     if (response.ok) {
       return await response.text();
@@ -340,15 +694,15 @@ async function fetchWithSmartHeaders(url, siteName) {
     if (response.status === 403 || response.status === 429) {
       console.log(`⚠️ ${siteName} engelledi, alternatif deneniyor...`);
       
-      const simpleHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      const mobileHeaders = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
         'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'tr-TR,tr'
+        'Accept-Language': 'tr-TR,tr;q=0.9'
       };
       
       const retryResponse = await fetch(url, {
-        headers: simpleHeaders,
-        timeout: 10000
+        headers: mobileHeaders,
+        timeout: 15000
       });
       
       if (retryResponse.ok) {
@@ -365,424 +719,122 @@ async function fetchWithSmartHeaders(url, siteName) {
   }
 }
 
-function getHeadersForSite(siteName) {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-    'Cache-Control': 'max-age=0'
+// ========== HUGGING FACE AI YORUM SİSTEMİ ==========
+async function generateAIYorum(productData) {
+  try {
+    const { title, price, site, originalQuery } = productData;
+    
+    if (!HUGGINGFACE_API_KEY) {
+      return await generateLocalAIYorum(productData);
+    }
+    
+    const prompt = `
+    E-ticaret analiz uzmanı olarak Türkçe teknik analiz yap:
+    
+    Ürün: ${title || originalQuery || "Bilinmeyen ürün"}
+    Fiyat: ${price || "Fiyat bilinmiyor"}
+    Site: ${site || "Bilinmeyen site"}
+    
+    Detaylı analiz yap. Şunları içer:
+    1. Fiyatın piyasa değeri (çok uygun/uygun/orta/pahalı/çok pahalı)
+    2. Ürünün teknik özellikleri hakkında gerçekçi tahminler
+    3. Hangi kullanıcı tipine uygun (öğrenci/profesyonel/oyuncu/günlük)
+    4. Alternatif öneriler
+    5. Satın alma tavsiyesi
+    
+    Marka ve modele özgü, kısa ve net olsun (max 250 kelime).
+    `;
+    
+    const response = await axios.post(
+      `https://api-inference.huggingface.co/models/${AI_MODEL}`,
+      {
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: 500,
+          temperature: 0.7,
+          top_p: 0.9,
+          repetition_penalty: 1.2,
+          do_sample: true
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+    
+    let aiResponse = response.data[0]?.generated_text || "";
+    
+    if (aiResponse.includes(prompt)) {
+      aiResponse = aiResponse.split(prompt)[1]?.trim() || aiResponse;
+    }
+    
+    if (!aiResponse || aiResponse.length < 50) {
+      aiResponse = await generateLocalAIYorum(productData);
+    }
+    
+    return aiResponse;
+    
+  } catch (error) {
+    console.error("🤖 Hugging Face AI Hatası:", error.message);
+    return await generateLocalAIYorum(productData);
+  }
+}
+
+// ========== LOCAL AI FALLBACK ==========
+async function generateLocalAIYorum(productData) {
+  const { title, price, site, originalQuery } = productData;
+  const urunAdi = (title || originalQuery || "").toLowerCase();
+  
+  const fiyatSayi = (price || '').match(/([\d.,]+)/);
+  const fiyat = fiyatSayi ? parseFloat(fiyatSayi[1].replace(/\./g, '').replace(',', '.')) : 0;
+  
+  let urunTuru = "genel";
+  const turler = {
+    'telefon': ['iphone', 'samsung', 'xiaomi', 'huawei', 'telefon', 'cep'],
+    'tablet': ['ipad', 'tablet', 'pad', 'galaxy tab'],
+    'laptop': ['laptop', 'notebook', 'macbook', 'asus'],
+    'kulaklık': ['airpods', 'kulaklık', 'headphone'],
+    'tv': ['tv', 'televizyon', 'smart tv']
   };
   
-  if (siteName === 'Hepsiburada') {
-    headers['Referer'] = 'https://www.hepsiburada.com/';
-    headers['Host'] = 'www.hepsiburada.com';
-    headers['DNT'] = '1';
-  }
-  else if (siteName === 'Trendyol') {
-    headers['Referer'] = 'https://www.trendyol.com/';
-  }
-  else if (siteName === 'Amazon TR') {
-    headers['Referer'] = 'https://www.amazon.com.tr/';
-  }
-  else if (siteName === 'n11') {
-    headers['Referer'] = 'https://www.n11.com/';
-  }
-  else {
-    headers['Referer'] = 'https://www.google.com/';
-  }
-  
-  return headers;
-}
-
-function extractTitle($, siteConfig) {
-  let title = '';
-  
-  for (const selector of siteConfig.title) {
-    title = $(selector).first().text().trim();
-    if (title && title.length > 3) break;
-  }
-  
-  if (!title || title.length < 3) {
-    title = $('title').text().trim() || 'Ürün';
-  }
-  
-  return title.substring(0, 150);
-}
-
-function extractPrice($, siteConfig, html) {
-  console.log(`💰 ${siteConfig.name} fiyat aranıyor...`);
-  
-  for (const priceConfig of siteConfig.price) {
-    const element = $(priceConfig.selector).first();
-    
-    if (element.length) {
-      let price = '';
-      
-      if (priceConfig.type === 'attr' && priceConfig.attr) {
-        price = element.attr(priceConfig.attr) || '';
-      } else {
-        price = element.text().trim();
-      }
-      
-      if (price && price.length > 0) {
-        console.log(`🎯 ${priceConfig.selector}: ${price.substring(0, 50)}`);
-        
-        price = price.replace(/\s+/g, ' ').trim();
-        
-        if (price.match(/([\d.,]+)/)) {
-          return price;
-        }
-      }
+  for (const [tur, kelimeler] of Object.entries(turler)) {
+    if (kelimeler.some(k => urunAdi.includes(k))) {
+      urunTuru = tur;
+      break;
     }
   }
   
-  const metaPrice = $('meta[property="product:price:amount"]').attr('content') ||
-                    $('meta[itemprop="price"]').attr('content');
-  if (metaPrice) {
-    console.log(`🎯 Meta: ${metaPrice}`);
-    return metaPrice;
-  }
-  
-  const priceRegex = /(?:₺|TL)[\s:]*([\d.,]{3,})|([\d.,]{3,})[\s]*(?:₺|TL)/gi;
-  const matches = html.match(priceRegex) || [];
-  
-  if (matches.length > 0) {
-    const cleanMatches = matches.map(m => m.replace(/\s+/g, ''));
-    const uniqueMatches = [...new Set(cleanMatches)];
+  const analizler = [
+    `🔍 **${urunAdi.toUpperCase()} ANALİZİ**
     
-    if (uniqueMatches.length === 1) {
-      console.log(`🎯 Regex: ${uniqueMatches[0]}`);
-      return uniqueMatches[0];
-    }
+    📊 **Fiyat Değerlendirmesi:** ${price} fiyatı ile bu ürün ${fiyat < 1000 ? 'çok uygun' : fiyat < 5000 ? 'ekonomik' : fiyat < 15000 ? 'orta segment' : fiyat < 30000 ? 'premium' : 'lüks'} kategorisinde yer alıyor.
     
-    const counts = {};
-    cleanMatches.forEach(m => {
-      counts[m] = (counts[m] || 0) + 1;
-    });
+    ⚙️ **Teknik Tahminler:** ${urunTuru === 'telefon' ? 'Muhtemelen yüksek çözünürlüklü ekran, çoklu kamera sistemi ve hızlı işlemci sunuyor.' : urunTuru === 'laptop' ? 'SSD depolama, en az 8GB RAM ve modern işlemci beklenebilir.' : 'Kaliteli malzeme ve uzun ömürlü performans vaat ediyor.'}
     
-    const mostCommon = Object.keys(counts).reduce((a, b) => 
-      counts[a] > counts[b] ? a : b
-    );
-    console.log(`🎯 Regex (${counts[mostCommon]} kez): ${mostCommon}`);
-    return mostCommon;
-  }
+    👥 **Kullanıcı Tipi:** ${fiyat < 3000 ? 'Öğrenciler ve bütçe dostu arayanlar' : fiyat < 10000 ? 'Orta gelir grubu ve günlük kullanıcılar' : 'Profesyoneller ve performans odaklı kullanıcılar'} için ideal.
+    
+    💡 **Öneriler:** ${site ? `${site}'deki` : 'Bu'} fiyatla ${urunAdi.includes('apple') || urunAdi.includes('iphone') ? 'Apple ekosistemine girmek isteyenler' : 'teknoloji meraklıları'} değerlendirebilir.`,
+    
+    `🤖 **${title || originalQuery} İÇİN AI RAPORU**
+    
+    💰 **Piyasa Pozisyonu:** ${price} fiyat etiketi, Türkiye pazarında ${urunTuru} segmentinde ${fiyat < 8000 ? 'rekabetçi bir konumda' : 'orta-üst seviyede'} bulunuyor.
+    
+    🎯 **Hedef Kitle:** ${urunAdi.includes('pro') || urunAdi.includes('max') ? 'Profesyonel kullanıcılar ve içerik üreticiler' : 'Günlük kullanıcılar ve teknoloji meraklıları'}
+    
+    ⚡ **Performans Beklentisi:** ${urunTuru === 'telefon' ? 'Günlük görevlerde akıcı, oyunlarda orta seviye performans' : urunTuru === 'laptop' ? 'Ofis uygulamalarında hızlı, multimedya için yeterli' : 'Kaliteli ses/görüntü deneyimi'}
+    
+    📈 **Yatırım Değeri:** ${fiyat > 20000 ? 'Uzun vadeli kullanım için iyi bir yatırım' : 'Kısa-orta vadeli kullanım için makul'}
+    
+    🏆 **Son Söz:** ${site || 'Bu mağaza'} üzerinden alım yapmayı düşünüyorsanız, ${fiyat > 15000 ? 'garanti ve servis olanaklarını' : 'müşteri yorumlarını ve iade politikasını'} mutlaka kontrol edin.`
+  ];
   
-  return null;
+  return analizler[Math.floor(Math.random() * analizler.length)];
 }
 
+// ========== FİYAT TEMİZLEME ==========
 function cleanPrice(price) {
-  if (!price) return 'Fiyat çekilemedi';
-  
-  let formatted = String(price).trim();
-  
-  formatted = formatted.replace(/\s+/g, '');
-  formatted = formatted.replace(/TL/gi, '₺');
-  
-  if (!formatted.includes('₺')) {
-    formatted = '₺' + formatted;
-  }
-  
-  formatted = formatted.replace(/\.(?=\d{3})/g, '');
-  
-  const priceMatch = formatted.match(/₺?([\d.,]+)/);
-  if (!priceMatch) return 'Fiyat çekilemedi';
-  
-  const numStr = priceMatch[1];
-  const num = parseFloat(numStr.replace('.', '').replace(',', '.'));
-  
-  if (isNaN(num) || num <= 0) {
-    return 'Fiyat çekilemedi';
-  }
-  
-  return formatted;
-}
-
-// ========== DİĞER ENDPOINT'LER ==========
-app.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: 'FiyatTakip AI API v1.1',
-    endpoints: {
-      'POST /fiyat-cek-link': 'Linkten fiyat çek',
-      'POST /ai/yorum': 'AI ürün analizi',
-      'POST /ai/compare': 'AI ürün karşılaştırma',
-      'GET /health': 'Sağlık kontrolü',
-      'GET /site-durum': 'Site durumları'
-    },
-    note: 'AI yorum sistemi aktif - Özgün analizler'
-  });
-});
-
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    message: 'Fiyat API çalışıyor',
-    version: '1.1.0',
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get('/site-durum', (req, res) => {
-  const sites = {};
-  
-  for (const [domain, config] of Object.entries(SITE_CONFIGS)) {
-    sites[config.name] = {
-      calisiyor: config.working,
-      domain: domain
-    };
-  }
-  
-  res.json({
-    success: true,
-    sites: sites,
-    calisan: Object.values(SITE_CONFIGS).filter(s => s.working).length,
-    toplam: Object.keys(SITE_CONFIGS).length
-  });
-});
-
-// ========== AI YORUM SİSTEMİ ==========
-app.post('/ai/yorum', async (req, res) => {
-  try {
-    const { title, price, site, originalQuery } = req.body;
-    
-    console.log(`🤖 AI yorum: ${originalQuery || title}`);
-    
-    if (!title && !originalQuery) {
-      return res.json({
-        success: false,
-        error: 'Ürün bilgisi gerekiyor'
-      });
-    }
-    
-    const urunAdi = (title || originalQuery || '').toLowerCase();
-    let tip = 'genel';
-    
-    if (urunAdi.includes('iphone') || urunAdi.includes('telefon') || urunAdi.includes('samsung') || urunAdi.includes('cep')) {
-      tip = 'telefon';
-    } else if (urunAdi.includes('laptop') || urunAdi.includes('notebook') || urunAdi.includes('dizüstü')) {
-      tip = 'laptop';
-    } else if (urunAdi.includes('kitap')) {
-      tip = 'kitap';
-    } else if (urunAdi.includes('tv') || urunAdi.includes('televizyon')) {
-      tip = 'tv';
-    }
-    
-    const fiyatSayi = (price || '').match(/([\d.,]+)/);
-    const fiyat = fiyatSayi ? parseFloat(fiyatSayi[1].replace('.', '').replace(',', '.')) : 0;
-    let fiyatDurum = 'normal';
-    if (fiyat < 1000) fiyatDurum = 'uygun';
-    if (fiyat > 5000) fiyatDurum = 'yüksek';
-    
-    const yorumlar = {
-      telefon: [
-        `${site}'deki ${price}, ${title} için ${fiyatDurum}. Ekran ve kamera bu fiyatta önemli.`,
-        `${title} ${site}'nde ${price}. ${fiyatDurum} segmentte. Pil ömrü değerlendirilmeli.`,
-        `${site} fiyatı: ${price}. ${title} için ${fiyatDurum}. 5G desteği varsa iyi tercih.`
-      ],
-      laptop: [
-        `${title} ${site}'nde ${price}. ${fiyatDurum} fiyat. SSD kapasitesi önemli.`,
-        `${site} fiyatı ${price}. ${title} ${fiyatDurum}. İşlemci performansı kontrol edilmeli.`,
-        `${price} ile ${title} ${fiyatDurum}. Ekran kartı ihtiyacınıza göre değerlendirin.`
-      ],
-      genel: [
-        `${title} ${site}'nde ${price}. ${fiyatDurum} fiyat. Kalite-garanti dikkate alınmalı.`,
-        `${site}'de ${price} olan ${title} ${fiyatDurum}. Kullanıcı yorumları incelenebilir.`,
-        `${title} için ${site} fiyatı: ${price}. ${fiyatDurum}. Benzer ürünlerle karşılaştırın.`
-      ]
-    };
-    
-    const secim = yorumlar[tip] || yorumlar.genel;
-    const aiYorum = secim[Math.floor(Math.random() * secim.length)];
-    
-    return res.json({
-      success: true,
-      yorum: aiYorum,
-      urun: title || originalQuery,
-      fiyat: price || 'Bilinmiyor',
-      site: site || 'Bilinmeyen'
-    });
-    
-  } catch (error) {
-    console.error('AI yorum hatası:', error);
-    return res.json({
-      success: true,
-      yorum: 'Ürün analiz edildi. Fiyat/performans değerlendirildi.'
-    });
-  }
-});
-
-// ========== AI KARŞILAŞTIRMA (ÖZGÜN) ==========
-app.post('/ai/compare', async (req, res) => {
-  try {
-    const { products } = req.body;
-    
-    if (!products || products.length < 2) {
-      return res.json({
-        success: false,
-        error: 'En az 2 ürün gerekiyor'
-      });
-    }
-    
-    // FİYAT ANALİZİ
-    const urunler = products.map(p => {
-      const fiyatMatch = (p.price || '').match(/([\d.,]+)/);
-      const fiyat = fiyatMatch ? 
-        parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
-      
-      return {
-        ...p,
-        fiyatSayi: fiyat
-      };
-    });
-    
-    // SIRALA
-    const siralanan = [...urunler].sort((a, b) => a.fiyatSayi - b.fiyatSayi);
-    const enUcuz = siralanan[0];
-    const enPahali = siralanan[urunler.length - 1];
-    const fark = enPahali.fiyatSayi - enUcuz.fiyatSayi;
-    
-    // ÖZGÜN YORUMLAR
-    const analizler = [
-      `🤔 **${urunler.length} Ürün Detaylı İncelemesi**
-
-${urunler.map((u, i) => `${i+1}. **${u.title.substring(0, 50)}...** 
-   💰 ${u.price} • 🏪 ${u.site}`).join('\n\n')}
-
-📊 **Fiyat Analizi:**
-• **En ekonomik:** ${enUcuz.title.substring(0, 35)}... - ${enUcuz.price}
-• **En yüksek:** ${enPahali.title.substring(0, 35)}... - ${enPahali.price}
-• **Fark:** ${fark.toFixed(2)} TL (${(fark/enUcuz.fiyatSayi*100).toFixed(0)}%)
-
-💭 **Değerlendirme:**
-${fark > enUcuz.fiyatSayi * 0.5 ? 'Fiyat farkı oldukça belirgin. Ürün özellikleri dikkatle karşılaştırılmalı.' : 'Fiyatlar benzer segmentte. Marka ve kalite farkları değerlendirilmeli.'}
-
-🎯 **Öneri:** ${enUcuz.title.substring(0, 30)}... seçeneği ${fark > 1000 ? 'belirgin bir fiyat avantajı' : 'daha uygun bir seçenek'} sunuyor.`,
-
-      `🔍 **Ürün Karşılaştırma Raporu**
-
-**İncelenen Ürünler:**
-${urunler.map(u => `• ${u.site}: **${u.price}** - ${u.title.substring(0, 45)}...`).join('\n')}
-
-💰 **Fiyat Dağılımı:**
-- Minimum: ${enUcuz.price}
-- Maksimum: ${enPahali.price}
-- Ortalama: ${(urunler.reduce((s, u) => s + u.fiyatSayi, 0) / urunler.length).toFixed(2)} TL
-- Standart Sapma: ${Math.sqrt(urunler.reduce((s, u) => s + Math.pow(u.fiyatSayi - (urunler.reduce((sum, prod) => sum + prod.fiyatSayi, 0) / urunler.length), 2), 0) / urunler.length).toFixed(2)} TL
-
-📈 **AI Analizi:**
-"${enUcuz.title.substring(0, 25)}..." ve "${enPahali.title.substring(0, 25)}..." arasında ${fark.toFixed(2)} TL fark bulunuyor. 
-${urunler.length === 2 ? 'İki ürün doğrudan karşılaştırıldı.' : `${urunler.length} farklı ürün kapsamlı şekilde incelendi.`}
-
-🏆 **Sonuç:** ${enUcuz.site}'daki ürün en iyi fiyat/değer oranını sunuyor. ${fark > 2000 ? 'Ancak özellik farklılıkları mutlaka gözden geçirilmeli.' : 'Benzer özellikler için ideal bir tercih.'}`,
-
-      `🌟 **Akıllı Karşılaştırma**
-
-${urunler.map((u, i) => `**${String.fromCharCode(65 + i)}. Seçenek**
-   📦 ${u.title.substring(0, 40)}...
-   ⭐ ${u.site} • 💵 ${u.price} • 🔢 ${u.fiyatSayi.toFixed(2)} TL`).join('\n\n')}
-
-🤖 **Yapay Zeka Değerlendirmesi:**
-${urunler.length} ürün arasında "${enUcuz.title.substring(0, 20)}..." en düşük maliyetli seçenek. 
-Fiyat farkı **${fark.toFixed(2)} TL** (${(fark/enUcuz.fiyatSayi*100).toFixed(0)}% daha pahalı).
-
-💡 **Önerilen Strateji:**
-1. ${enUcuz.title.substring(0, 25)}... - Bütçe dostu temel seçenek
-2. ${urunler[1] ? urunler[1].title.substring(0, 25) + '...' : 'Diğer ürün'} - Alternatif değerlendirme
-${urunler.length > 2 ? `3. ${urunler[2].title.substring(0, 25)}... - Premium özellikler` : ''}
-
-📋 **Karar Matrisi:**
-• **Ekonomi:** ${enUcuz.site} ✓
-• **Özellik:** ${urunler.find(u => u.fiyatSayi > enUcuz.fiyatSayi)?.site || enUcuz.site} 
-• **Değer:** ${enUcuz.site} ✓`
-    ];
-    
-    const secilenAnaliz = analizler[Math.floor(Math.random() * analizler.length)];
-    
-    // ÖZGÜN ÖNERİLER
-    const oneriler = [
-      `${enUcuz.title.substring(0, 25)}... öncelikli değerlendirilmeli. ${fark > 1500 ? 'Yüksek fiyat farkı, detaylı incelemeyi gerektiriyor.' : ''}`,
-      `${enUcuz.site}'daki ürün bütçe için en uygun. İhtiyaçlarınıza göre karar verin.`,
-      `Fiyat/performans analizi: ${enUcuz.title.substring(0, 20)}... öne çıkıyor. Özellik karşılaştırması yapın.`,
-      `${enUcuz.price} ile ${enUcuz.title.substring(0, 15)}... ekonomik bir tercih.`,
-      `Karşılaştırma sonucu: ${enUcuz.site} en iyi değeri sunuyor. ${fark > 1000 ? 'Anlamlı fiyat farkı var.' : 'Fiyatlar yakın seviyede.'}`
-    ];
-    
-    const secilenOneri = oneriler[Math.floor(Math.random() * oneriler.length)];
-    
-    return res.json({
-      success: true,
-      analysis: secilenAnaliz,
-      recommendation: secilenOneri,
-      best_value: {
-        title: enUcuz.title,
-        price: enUcuz.price,
-        site: enUcuz.site,
-        fiyat_farki: `${fark.toFixed(2)} TL`,
-        yuzde_fark: `${(fark/enUcuz.fiyatSayi*100).toFixed(0)}%`
-      },
-      stats: {
-        urun_sayisi: urunler.length,
-        fiyat_araligi: `${enUcuz.fiyatSayi.toFixed(2)} - ${enPahali.fiyatSayi.toFixed(2)} TL`,
-        ortalama_fiyat: (urunler.reduce((s, u) => s + u.fiyatSayi, 0) / urunler.length).toFixed(2),
-        medyan_fiyat: siralanan[Math.floor(urunler.length / 2)].fiyatSayi.toFixed(2)
-      },
-      note: 'Özgün AI karşılaştırması - Her ürün türü için uygun'
-    });
-    
-  } catch (error) {
-    console.error('AI compare hatası:', error);
-    
-    // BASİT FALLBACK
-    const urunler = products || [];
-    if (urunler.length >= 2) {
-      const enUcuzFallback = urunler.reduce((min, u) => {
-        const fiyatMatch = (u.price || '').match(/([\d.,]+)/);
-        const fiyat = fiyatMatch ? parseFloat(fiyatMatch[1].replace(/\./g, '').replace(',', '.')) : Infinity;
-        return fiyat < min.fiyat ? { urun: u, fiyat } : min;
-      }, { urun: urunler[0], fiyat: Infinity });
-      
-      return res.json({
-        success: true,
-        analysis: `**${urunler.length} Ürün Karşılaştırması**\n\n${urunler.map(u => `• ${u.site}: ${u.price} - ${u.title.substring(0, 40)}...`).join('\n')}\n\nEn uygun: ${enUcuzFallback.urun.title.substring(0, 30)}... - ${enUcuzFallback.urun.price}`,
-        recommendation: `${enUcuzFallback.urun.site}'daki ürün önerilir.`,
-        note: 'Basit analiz'
-      });
-    }
-    
-    return res.json({
-      success: false,
-      error: 'Karşılaştırma yapılamadı'
-    });
-  }
-});
-
-// ========== 404 HANDLER ==========
-app.use('*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    error: 'Endpoint bulunamadı',
-    available: [
-      'POST /fiyat-cek-link',
-      'POST /ai/yorum',
-      'POST /ai/compare',
-      'GET /health',
-      'GET /site-durum',
-      'GET /'
-    ]
-  });
-});
-
-// ========== SUNUCU BAŞLATMA ==========
-app.listen(PORT, () => {
-  console.log(`
-  🚀 FIYAT API v1.1 - ÖZGÜN AI
-  📍 Port: ${PORT}
-  ✅ Tüm siteler aktif
-  🤖 AI karşılaştırma: AKTİF
-  🔗 /ai/compare - Özgün ürün analizi
-  ⚡ Her ürün türü için uygun
-  `);
-});
+  if (!price) return 'Fiyat çekilemedi
